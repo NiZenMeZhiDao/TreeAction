@@ -252,11 +252,11 @@ BT Node (C++)                               Action Server (Python)
 
 <!-- 下次抓取前必须等待后台完成 -->
 <Sequence>
-  <IsSegmentType expected="MOVE2_ARM_PREPARE" actual="{segment_type}"/>
+  <IsSegmentType expected="GRASP" actual="{segment_type}"/>
   <WaitArmIdle/>
   <Parallel success_count="2" failure_count="1">
     <MoveToPose .../>
-    <ArmAction command="prepare_grasp" wait_result="true"/>
+    <ArmAction command="grasp" wait_result="true"/>
   </Parallel>
 </Sequence>
 ```
@@ -569,7 +569,7 @@ BT 引擎收到后解析 JSON → 填充 `Segment` 结构体 → 入队 `Segment
 | `r2_hardware/r2_hardware/action_servers/suspension_action_server.py` | Suspension Action Server |
 | `r2_hardware/r2_hardware/action_servers/arm_action_server.py` | Arm Action Server |
 | `r2_hardware/r2_hardware/action_servers/spear_action_server.py` | Spear Action Server |
-| `r2_hardware/r2_hardware/action_servers/move_to_pose_action_server.py` | MoveToPose Action Server |
+| `r2_hardware/r2_hardware/action_servers/move_to_pose_server.py` | MoveToPose Action Server |
 | `ares_usb/ares_usb_comm_design.md` | USB 通信协议详细设计 |
 | `design.md` | 全区域流程设计和 SpearAction 语义定义 |
 | `r2_bt/trees/full_match.xml` | 全赛程 BT XML 树 |

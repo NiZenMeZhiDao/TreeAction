@@ -1,42 +1,51 @@
 #!/usr/bin/env python3
 """
-r2_sim.launch.py — 仿真环境启动
+r2_meilin_sim.launch.py — 梅林赛段仿真启动
 
-启动顺序:
-  1. r2_hardware (里程计模拟器 + 各 Action Server)
-  2. r2_bt (BT 决策引擎)
+启动梅林区完整的仿真环境:
+  1. r2_hardware: 里程计模拟器 + 所有 Action Server (底盘/悬挂/机械臂/矛头)
+  2. r2_bt: BT 决策引擎（加载 meilin_stage.xml）
+  3. mf_action_planner 或 Web 直接发布 /mf_action_seq
+
+与全场 r2_sim.launch.py 的区别:
+  - 树固定为 meilin_stage.xml（不加载准备区/竞技区）
+  - BT 直接订阅 /mf_action_seq
+  - 无需 match_config
+  - 适合单独调试梅林区路径规划
 
 启动示例:
-  ros2 launch r2_bringup r2_sim.launch.py match_config:=config/match_red.json    # 红方全场
-  ros2 launch r2_bringup r2_sim.launch.py match_config:=config/match_blue.json   # 蓝方全场
-  ros2 launch r2_bringup r2_sim.launch.py tree_file:=meilin_stage.xml            # 梅林调试
+  # 蓝方梅林区（默认）
+  ros2 launch r2_bringup r2_meilin_sim.launch.py
+
+  # 红方梅林区
+  ros2 launch r2_bringup r2_meilin_sim.launch.py is_red_zone:=true
+
+  # 自定义 Groot2 端口
+  ros2 launch r2_bringup r2_meilin_sim.launch.py groot2_port:=1668
 """
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    # ---- BT 引擎启动参数 ----
+    # ---- BT 引擎参数 ----
     tree_file_arg = DeclareLaunchArgument(
         'tree_file',
-        default_value='full_match.xml',
-        description='行为树 XML 文件名 (位于 r2_bt/trees/ 目录下): '
-                    'full_match.xml / meilin_stage.xml')
+        default_value='meilin_stage.xml',
+        description='行为树 XML 文件名 (位于 r2_bt/trees/ 目录下)')
 
     match_config_arg = DeclareLaunchArgument(
         'match_config',
         default_value='',
-        description='比赛配置文件 (位于 r2_bt/config/ 目录下): '
-                    'config/match_red.json / config/match_blue.json。'
-                    '留空则跳过启动加载。')
+        description='比赛配置文件（可选）。当前梅林段不再从配置加载静态 segment。')
 
     groot2_port_arg = DeclareLaunchArgument(
         'groot2_port',
         default_value='1667',
-        description='Groot2 监控端口 (0 表示禁用)')
+        description='Groot2 监控端口（0 表示禁用）')
 
     tick_frequency_arg = DeclareLaunchArgument(
         'tick_frequency',
@@ -53,6 +62,27 @@ def generate_launch_description():
         default_value='/mf_action_seq',
         description='接收梅林 move/fetch Float32MultiArray 的 ROS2 Topic')
 
+    # ---- 梅林区几何参数（传给 BT 引擎）----
+    is_red_zone_arg = DeclareLaunchArgument(
+        'is_red_zone',
+        default_value='false',
+        description='是否为红方区域')
+
+    grid_size_arg = DeclareLaunchArgument(
+        'grid_size',
+        default_value='1.2',
+        description='梅林区网格大小 (m)')
+
+    grid_origin_arg = DeclareLaunchArgument(
+        'grid_origin',
+        default_value='[1.2, 1.2]',
+        description='梅林区网格原点 [x, y] (m)')
+
+    grasp_distance_arg = DeclareLaunchArgument(
+        'grasp_distance',
+        default_value='0.4',
+        description='抓取时车身距格子边线的距离 (m)')
+
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
@@ -60,8 +90,16 @@ def generate_launch_description():
         tick_frequency_arg,
         segment_topic_arg,
         mf_action_topic_arg,
+        is_red_zone_arg,
+        grid_size_arg,
+        grid_origin_arg,
+        grasp_distance_arg,
 
-        # ---- 仿真: 里程计模拟器 ----
+        # ============================================================
+        #  仿真硬件层: r2_hardware
+        # ============================================================
+
+        # ---- 里程计模拟器 ----
         Node(
             package='r2_hardware',
             executable='odom_simulator',
@@ -69,7 +107,7 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # ---- Action Server: 底盘导航 ----
+        # ---- Action Server: 底盘导航 (MoveToPose + Align 共用) ----
         Node(
             package='r2_hardware',
             executable='move_to_pose_action_server',
@@ -104,7 +142,11 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # ---- 上层: BT 决策引擎 ----
+        # ============================================================
+        #  决策层: r2_bt
+        # ============================================================
+
+        # ---- BT 决策引擎 ----
         Node(
             package='r2_bt',
             executable='r2_bt_engine',
@@ -117,6 +159,10 @@ def generate_launch_description():
                 'tick_frequency': LaunchConfiguration('tick_frequency'),
                 'segment_topic': LaunchConfiguration('segment_topic'),
                 'mf_action_topic': LaunchConfiguration('mf_action_topic'),
+                'meilin_grid_size': LaunchConfiguration('grid_size'),
+                'meilin_grid_origin': LaunchConfiguration('grid_origin'),
+                'meilin_grasp_distance': LaunchConfiguration('grasp_distance'),
+                'meilin_side': PythonExpression(["'red' if '", LaunchConfiguration('is_red_zone'), "' == 'true' else 'blue'"]),
             }],
         ),
 

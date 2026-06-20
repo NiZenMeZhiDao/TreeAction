@@ -11,8 +11,6 @@ uint8 CMD_STORE_ON_ARM=3
 uint8 CMD_GET_BODY=4
 uint8 CMD_PLACE_MID=5
 uint8 CMD_PLACE_HIGH=6
-uint8 CMD_SAFE_POSE=7
-uint8 CMD_PREPARE_GRASP=8
 
 uint8 command
 bool wait_result

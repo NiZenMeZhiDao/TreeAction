@@ -22,7 +22,6 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'meilin_translator = r2_planner.meilin_translator:main',
         ],
     },
 )

@@ -20,14 +20,20 @@ find_package(nlohmann_json REQUIRED)
 # BT nodes library (C++)
 #------------------------------------------------------------
 add_library(r2_bt_nodes SHARED
+  src/nodes/align.cpp
   src/nodes/arm_action.cpp
   src/nodes/is_segment_type.cpp
   src/nodes/is_string_empty.cpp
   src/nodes/is_string_non_empty.cpp
+  src/nodes/meilin_fetch.cpp
+  src/nodes/meilin_move.cpp
   src/nodes/move_to_pose.cpp
+  src/nodes/pop_next_meilin_segment.cpp
   src/nodes/pop_next_segment.cpp
   src/nodes/retry_segment.cpp
   src/nodes/set_debug_status.cpp
+  src/nodes/switch_segment_type.cpp
+  src/nodes/for_each_segment.cpp
   src/nodes/spear_action.cpp
   src/nodes/suspension_control.cpp
   src/nodes/wait_arm_idle.cpp
@@ -84,6 +90,7 @@ install(TARGETS
 
 install(DIRECTORY trees DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 
 install(DIRECTORY include/
   DESTINATION include)

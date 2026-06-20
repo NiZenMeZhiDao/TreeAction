@@ -26,7 +26,7 @@ setup(
             'arm_action_server = r2_hardware.action_servers.arm_action_server:main',
             'spear_action_server = r2_hardware.action_servers.spear_action_server:main',
             'odom_simulator = r2_hardware.topic_nodes.odom_simulator:main',
-            'move_to_pose_action_server = r2_hardware.action_servers.move_to_pose_action_server:main',
+            'move_to_pose_action_server = r2_hardware.action_servers.move_to_pose_server:main',
         ],
     },
 )

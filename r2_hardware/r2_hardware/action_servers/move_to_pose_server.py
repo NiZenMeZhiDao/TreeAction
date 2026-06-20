@@ -2,202 +2,657 @@
 """
 MoveToPose Action Server
 
-接收单个目标位姿 (x, y, yaw)，使用 PID 控制驱动底盘到达目标。
+基于 Motion_control_accurate 的两阶段 PID 控制：
+  1. Yaw 阶段：原地旋转对准目标方向
+  2. XY 阶段：在机体坐标系下平移逼近目标点，同时修正 yaw
+
 发布 cmd_vel 到 /t0x0101（Float32MultiArray: [vx, vy, vyaw]）。
 """
 
 import math
+import os
+import time
+from dataclasses import dataclass
+from datetime import datetime
 
-import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped
-from rclpy.action import ActionServer, GoalResponse, CancelResponse
-from rclpy.action.server import ServerGoalHandle
+from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from r2_interfaces.action import MoveToPose
 from std_msgs.msg import Float32MultiArray
 
-from r2_hardware.pid_controller import PIDController
-from r2_hardware.transform_utils import yaw_from_quaternion
+
+ACTION_NAME = 'move_to_pose'
+PHASE_WAITING_FOR_POSE = 'waiting_for_pose'
+PHASE_YAW = 'yaw'
+PHASE_XY = 'xy'
+
+
+@dataclass
+class Pose2D:
+    x: float
+    y: float
+    yaw_rad: float
+
+
+class PidController:
+    def __init__(self, kp, ki, kd, integral_limit):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.integral_limit = abs(integral_limit)
+        self.reset()
+
+    def reset(self):
+        self.integral = 0.0
+        self.previous_error = None
+
+    def update(self, error, dt):
+        if dt <= 0.0:
+            derivative = 0.0
+        elif self.previous_error is None:
+            derivative = 0.0
+        else:
+            derivative = (error - self.previous_error) / dt
+
+        self.integral += error * max(dt, 0.0)
+        self.integral = clamp(
+            self.integral,
+            -self.integral_limit,
+            self.integral_limit,
+        )
+        self.previous_error = error
+
+        return (
+            self.kp * error
+            + self.ki * self.integral
+            + self.kd * derivative
+        )
+
+
+def clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, value))
+
+
+def apply_min_output(value, minimum):
+    minimum = abs(minimum)
+    if minimum <= 0.0 or value == 0.0:
+        return value
+    if abs(value) < minimum:
+        return math.copysign(minimum, value)
+    return value
+
+
+def apply_min_vector_output(x_value, y_value, minimum):
+    minimum = abs(minimum)
+    norm = math.hypot(x_value, y_value)
+    if minimum <= 0.0 or norm == 0.0 or norm >= minimum:
+        return x_value, y_value
+    scale = minimum / norm
+    return x_value * scale, y_value * scale
+
+
+def normalize_angle(angle_rad):
+    return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
+
+
+def yaw_from_quaternion(q):
+    siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+    cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
+def map_error_to_body(dx_map, dy_map, yaw_rad):
+    cos_yaw = math.cos(yaw_rad)
+    sin_yaw = math.sin(yaw_rad)
+    x_body = cos_yaw * dx_map + sin_yaw * dy_map
+    y_body = -sin_yaw * dx_map + cos_yaw * dy_map
+    return x_body, y_body
+
+
+def limit_vector(x_value, y_value, max_norm):
+    max_norm = abs(max_norm)
+    norm = math.hypot(x_value, y_value)
+    if max_norm <= 0.0 or norm <= max_norm:
+        return x_value, y_value
+    scale = max_norm / norm
+    return x_value * scale, y_value * scale
 
 
 class MoveToPoseActionServer(Node):
     def __init__(self):
-        super().__init__("move_to_pose_action_server")
+        super().__init__('move_to_pose_action_server')
+        self.callback_group = ReentrantCallbackGroup()
+        self.latest_pose = None
 
-        self.declare_parameter("control_frequency", 50.0)
-        self.declare_parameter("arrive_threshold", 0.12)
-        self.declare_parameter("angle_threshold", 0.08)
-        self.declare_parameter("odom_topic", "/odom_world")
-        self.declare_parameter("cmd_vel_topic", "/t0x0101")
+        self._declare_parameters()
+        self._load_parameters()
+        self.debug_samples = []
+        self.debug_record_start_time = None
 
-        self.declare_parameter("kp_angle", 4.0)
-        self.declare_parameter("ki_angle", 0.0)
-        self.declare_parameter("kd_angle", 0.2)
-        self.declare_parameter("kp_dist", 2.5)
-        self.declare_parameter("ki_dist", 0.0)
-        self.declare_parameter("kd_dist", 0.1)
-        self.declare_parameter("max_vel", 0.5)
-        self.declare_parameter("max_angular", 2.0)
-
-        self.control_freq = self._p("control_frequency")
-        self.arrive_threshold = self._p("arrive_threshold")
-        self.angle_threshold = self._p("angle_threshold")
-
-        self.current_pos = np.array([0.0, 0.0])
-        self.current_yaw = 0.0
-        self.have_odom = False
-
-        self.pid_dist = PIDController(
-            self._p("kp_dist"), self._p("ki_dist"), self._p("kd_dist"),
-            self._p("max_vel"),
+        self.velocity_pub = self.create_publisher(
+            Float32MultiArray,
+            self.velocity_topic,
+            10,
         )
-        self.pid_angle = PIDController(
-            self._p("kp_angle"), self._p("ki_angle"), self._p("kd_angle"),
-            self._p("max_angular"),
+        self.relocation_sub = self.create_subscription(
+            PoseStamped,
+            self.relocation_topic,
+            self._relocation_callback,
+            10,
+            callback_group=self.callback_group,
         )
-
-        self.odom_sub = self.create_subscription(
-            PoseStamped, self._p("odom_topic"), self._odom_callback, 10,
-        )
-        self.cmd_pub = self.create_publisher(
-            Float32MultiArray, self._p("cmd_vel_topic"), 10,
-        )
-
-        self._action_server = ActionServer(
+        self.action_server = ActionServer(
             self,
             MoveToPose,
-            "move_to_pose",
+            ACTION_NAME,
+            execute_callback=self._execute_callback,
             goal_callback=self._goal_callback,
             cancel_callback=self._cancel_callback,
-            execute_callback=self._execute_callback,
-            callback_group=ReentrantCallbackGroup(),
+            callback_group=self.callback_group,
+        )
+        self.get_logger().info(
+            f'MoveToPose action server ready on /{ACTION_NAME}; '
+            f'subscribing to {self.relocation_topic}, '
+            f'publishing velocity to {self.velocity_topic}'
         )
 
-        self.get_logger().info("MoveToPose Action Server started")
+    def _declare_parameters(self):
+        self.declare_parameter('relocation_topic', '/odom_world')
+        self.declare_parameter('velocity_topic', '/t0x0101')
+        self.declare_parameter('control_frequency_hz', 50.0)
+        self.declare_parameter('initial_pose_timeout_sec', 2.0)
+        self.declare_parameter('yaw_timeout_sec', 5.0)
+        self.declare_parameter('xy_timeout_sec', 5.0)
+        self.declare_parameter('brake_duration_sec', 0.3)
+        self.declare_parameter('brake_frequency_hz', 50.0)
+        self.declare_parameter('enable_debug_plot_files', True)
+        self.declare_parameter('debug_output_dir', 'output/pid_debug')
+        self.declare_parameter('yaw_tolerance_deg', 1.0)
+        self.declare_parameter('position_tolerance', 0.03)
+        self.declare_parameter('max_linear_speed', 0.25)
+        self.declare_parameter('max_yaw_angular_speed', 0.5)
+        self.declare_parameter('max_xy_yaw_angular_speed', 0.3)
+        self.declare_parameter('min_linear_speed', 0.2)
+        self.declare_parameter('min_yaw_angular_speed', 0.2)
+        self.declare_parameter('min_xy_yaw_angular_speed', 0.0)
+        self.declare_parameter('integral_limit', 0.5)
+        self.declare_parameter('yaw_pid.kp', 1.2)
+        self.declare_parameter('yaw_pid.ki', 0.0)
+        self.declare_parameter('yaw_pid.kd', 0.05)
+        self.declare_parameter('xy_yaw_pid.kp', 0.6)
+        self.declare_parameter('xy_yaw_pid.ki', 0.0)
+        self.declare_parameter('xy_yaw_pid.kd', 0.0)
+        self.declare_parameter('x_pid.kp', 0.8)
+        self.declare_parameter('x_pid.ki', 0.0)
+        self.declare_parameter('x_pid.kd', 0.02)
+        self.declare_parameter('y_pid.kp', 0.8)
+        self.declare_parameter('y_pid.ki', 0.0)
+        self.declare_parameter('y_pid.kd', 0.02)
 
-    def _p(self, name, default=None):
-        val = self.get_parameter(name).value
-        return val if val is not None else default
+    def _load_parameters(self):
+        self.relocation_topic = self.get_parameter(
+            'relocation_topic').value
+        self.velocity_topic = self.get_parameter('velocity_topic').value
+        self.control_frequency_hz = float(self.get_parameter(
+            'control_frequency_hz').value)
+        self.initial_pose_timeout_sec = float(self.get_parameter(
+            'initial_pose_timeout_sec').value)
+        self.yaw_timeout_sec = float(self.get_parameter(
+            'yaw_timeout_sec').value)
+        self.xy_timeout_sec = float(self.get_parameter(
+            'xy_timeout_sec').value)
+        self.brake_duration_sec = float(self.get_parameter(
+            'brake_duration_sec').value)
+        self.brake_frequency_hz = float(self.get_parameter(
+            'brake_frequency_hz').value)
+        self.enable_debug_plot_files = bool(self.get_parameter(
+            'enable_debug_plot_files').value)
+        self.debug_output_dir = self.get_parameter(
+            'debug_output_dir').value
+        self.yaw_tolerance_rad = math.radians(float(self.get_parameter(
+            'yaw_tolerance_deg').value))
+        self.position_tolerance = float(self.get_parameter(
+            'position_tolerance').value)
+        self.max_linear_speed = float(self.get_parameter(
+            'max_linear_speed').value)
+        self.max_yaw_angular_speed = float(self.get_parameter(
+            'max_yaw_angular_speed').value)
+        self.max_xy_yaw_angular_speed = float(self.get_parameter(
+            'max_xy_yaw_angular_speed').value)
+        self.min_linear_speed = float(self.get_parameter(
+            'min_linear_speed').value)
+        self.min_yaw_angular_speed = float(self.get_parameter(
+            'min_yaw_angular_speed').value)
+        self.min_xy_yaw_angular_speed = float(self.get_parameter(
+            'min_xy_yaw_angular_speed').value)
+        self.integral_limit = float(self.get_parameter(
+            'integral_limit').value)
 
-    def _odom_callback(self, msg: PoseStamped):
-        self.current_pos[0] = msg.pose.position.x
-        self.current_pos[1] = msg.pose.position.y
-        self.current_yaw = self._normalize_angle(
-            yaw_from_quaternion([
-                msg.pose.orientation.x,
-                msg.pose.orientation.y,
-                msg.pose.orientation.z,
-                msg.pose.orientation.w,
-            ])
+    def _make_pid(self, prefix):
+        return PidController(
+            float(self.get_parameter(f'{prefix}.kp').value),
+            float(self.get_parameter(f'{prefix}.ki').value),
+            float(self.get_parameter(f'{prefix}.kd').value),
+            self.integral_limit,
         )
-        self.have_odom = True
 
-    @staticmethod
-    def _normalize_angle(a):
-        while a > math.pi:
-            a -= 2.0 * math.pi
-        while a < -math.pi:
-            a += 2.0 * math.pi
-        return a
+    def _goal_from_pose_stamped(self, goal):
+        """从 PoseStamped 提取目标 x, y, yaw_deg。"""
+        pose = goal.target_pose.pose
+        x = pose.position.x
+        y = pose.position.y
+        yaw_rad = yaw_from_quaternion(pose.orientation)
+        yaw_deg = math.degrees(yaw_rad)
+        return x, y, yaw_deg
 
     def _goal_callback(self, goal_request):
-        self.get_logger().info("Accepting move_to_pose goal")
+        x, y, yaw_deg = self._goal_from_pose_stamped(goal_request)
+        self.get_logger().info(
+            'Received goal: '
+            f'x={x:.3f}, '
+            f'y={y:.3f}, '
+            f'yaw_deg={yaw_deg:.3f}, '
+            f'max_speed={goal_request.max_speed:.3f}'
+        )
         return GoalResponse.ACCEPT
 
     def _cancel_callback(self, goal_handle):
-        self.get_logger().info("MoveToPose goal cancelled, stopping")
-        self._stop()
+        self.get_logger().info('Cancel request accepted')
         return CancelResponse.ACCEPT
 
-    async def _execute_callback(self, goal_handle: ServerGoalHandle):
-        target = goal_handle.request.target_pose
-        max_speed = goal_handle.request.max_speed
-
-        tx = target.pose.position.x
-        ty = target.pose.position.y
-
-        qx = target.pose.orientation.x
-        qy = target.pose.orientation.y
-        qz = target.pose.orientation.z
-        qw = target.pose.orientation.w
-        target_yaw = self._normalize_angle(
-            yaw_from_quaternion([qx, qy, qz, qw])
+    def _relocation_callback(self, msg):
+        pose = msg.pose
+        self.latest_pose = Pose2D(
+            x=pose.position.x,
+            y=pose.position.y,
+            yaw_rad=yaw_from_quaternion(pose.orientation),
         )
 
-        self.get_logger().info(
-            f"MoveToPose target: x={tx:.3f} y={ty:.3f} yaw={math.degrees(target_yaw):.1f}deg"
-        )
+    def _execute_callback(self, goal_handle):
+        goal = goal_handle.request
+        target_x, target_y, target_yaw_deg = self._goal_from_pose_stamped(goal)
+        target_yaw_rad = math.radians(target_yaw_deg)
 
-        if not self.have_odom:
-            self.get_logger().warn("No odometry yet, waiting...")
+        result = MoveToPose.Result()
+        self._start_debug_recording()
 
-        feedback_msg = MoveToPose.Feedback()
-        self.pid_dist.reset()
-        self.pid_angle.reset()
+        yaw_pid = self._make_pid('yaw_pid')
+        xy_yaw_pid = self._make_pid('xy_yaw_pid')
+        x_pid = self._make_pid('x_pid')
+        y_pid = self._make_pid('y_pid')
+        period = 1.0 / max(self.control_frequency_hz, 1.0)
 
+        # 上限取参数和 goal.max_speed 中的较小值（goal.max_speed <= 0 则忽略）
+        effective_max_linear = self.max_linear_speed
+        if goal.max_speed > 0.0:
+            effective_max_linear = min(self.max_linear_speed, goal.max_speed)
+
+        wait_status = self._wait_for_pose(goal_handle, target_x, target_y, target_yaw_deg, period)
+        if wait_status == 'canceled':
+            result.success = False
+            result.message = 'Goal canceled while waiting for relocation pose'
+            return self._finish_result(target_x, target_y, target_yaw_deg, result)
+        if wait_status != 'ready':
+            result.success = False
+            result.message = 'Timed out waiting for relocation pose'
+            goal_handle.abort()
+            self._brake()
+            return self._finish_result(target_x, target_y, target_yaw_deg, result)
+
+        # ---- Phase 1: Yaw alignment ----
+        yaw_start_time = time.monotonic()
+        last_time = yaw_start_time
         while rclpy.ok():
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
-                self._stop()
-                return MoveToPose.Result(success=False, message="Cancelled")
+                result.success = False
+                result.message = 'Goal canceled during yaw phase'
+                self._brake()
+                return self._finish_result(target_x, target_y, target_yaw_deg, result)
 
-            if not self.have_odom:
-                await self._sleep(1.0 / self.control_freq)
-                continue
+            now = time.monotonic()
+            dt = now - last_time
+            last_time = now
+            pose = self.latest_pose
+            yaw_error = normalize_angle(target_yaw_rad - pose.yaw_rad)
 
-            dx = tx - self.current_pos[0]
-            dy = ty - self.current_pos[1]
-            dist = math.sqrt(dx * dx + dy * dy)
+            if abs(yaw_error) <= self.yaw_tolerance_rad:
+                self._publish_stop()
+                break
 
-            desired_yaw = math.atan2(dy, dx)
-            yaw_error = self._normalize_angle(desired_yaw - self.current_yaw)
+            if now - yaw_start_time > self.yaw_timeout_sec:
+                result.success = False
+                result.message = 'Yaw phase timed out'
+                goal_handle.abort()
+                self._brake()
+                return self._finish_result(target_x, target_y, target_yaw_deg, result)
 
-            feedback_msg.distance_remaining = float(dist)
-            goal_handle.publish_feedback(feedback_msg)
+            cmd_wz = yaw_pid.update(yaw_error, dt)
+            cmd_wz = apply_min_output(cmd_wz, self.min_yaw_angular_speed)
+            cmd_wz = clamp(
+                cmd_wz,
+                -self.max_yaw_angular_speed,
+                self.max_yaw_angular_speed,
+            )
+            self._publish_velocity(0.0, 0.0, cmd_wz)
+            self._publish_feedback(
+                goal_handle,
+                pose,
+                PHASE_YAW,
+                yaw_error,
+                self._distance_error(target_x, target_y, pose),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                cmd_wz,
+            )
+            time.sleep(period)
 
-            if dist < self.arrive_threshold:
-                yaw_error_final = self._normalize_angle(target_yaw - self.current_yaw)
-                if abs(yaw_error_final) < self.angle_threshold:
-                    self._stop()
-                    goal_handle.succeed()
-                    self.get_logger().info("MoveToPose succeeded")
-                    return MoveToPose.Result(success=True, message="Arrived")
+        # ---- Phase 2: XY approach ----
+        xy_yaw_pid.reset()
+        x_pid.reset()
+        y_pid.reset()
+        xy_start_time = time.monotonic()
+        last_time = xy_start_time
+        while rclpy.ok():
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                result.success = False
+                result.message = 'Goal canceled during xy phase'
+                self._brake()
+                return self._finish_result(target_x, target_y, target_yaw_deg, result)
 
-                angular_cmd = self.pid_angle.update(yaw_error_final, 0.0)
-                self._publish_cmd(0.0, 0.0, angular_cmd)
-                await self._sleep(1.0 / self.control_freq)
-                continue
+            now = time.monotonic()
+            dt = now - last_time
+            last_time = now
+            pose = self.latest_pose
+            dx_map = target_x - pose.x
+            dy_map = target_y - pose.y
+            distance_error = math.hypot(dx_map, dy_map)
+            yaw_error = normalize_angle(target_yaw_rad - pose.yaw_rad)
 
-            vx = self.pid_dist.update(dist, 0.0) * max_speed
-            angular = self.pid_angle.update(yaw_error, 0.0)
+            if distance_error <= self.position_tolerance:
+                result.success = True
+                result.message = 'Goal reached'
+                goal_handle.succeed()
+                self._brake()
+                return self._finish_result(target_x, target_y, target_yaw_deg, result)
 
-            vx = max(-max_speed, min(max_speed, vx))
+            if now - xy_start_time > self.xy_timeout_sec:
+                result.success = False
+                result.message = 'XY phase timed out'
+                goal_handle.abort()
+                self._brake()
+                return self._finish_result(target_x, target_y, target_yaw_deg, result)
 
-            self._publish_cmd(vx, 0.0, angular)
-            await self._sleep(1.0 / self.control_freq)
+            error_x_body, error_y_body = map_error_to_body(
+                dx_map,
+                dy_map,
+                pose.yaw_rad,
+            )
+            cmd_vx = x_pid.update(error_x_body, dt)
+            cmd_vy = y_pid.update(error_y_body, dt)
+            cmd_vx, cmd_vy = apply_min_vector_output(
+                cmd_vx,
+                cmd_vy,
+                self.min_linear_speed,
+            )
+            cmd_vx, cmd_vy = limit_vector(
+                cmd_vx,
+                cmd_vy,
+                effective_max_linear,
+            )
+            cmd_wz = xy_yaw_pid.update(yaw_error, dt)
+            cmd_wz = apply_min_output(
+                cmd_wz,
+                self.min_xy_yaw_angular_speed,
+            )
+            cmd_wz = clamp(
+                cmd_wz,
+                -self.max_xy_yaw_angular_speed,
+                self.max_xy_yaw_angular_speed,
+            )
 
+            self._publish_velocity(cmd_vx, cmd_vy, cmd_wz)
+            self._publish_feedback(
+                goal_handle,
+                pose,
+                PHASE_XY,
+                yaw_error,
+                distance_error,
+                error_x_body,
+                error_y_body,
+                cmd_vx,
+                cmd_vy,
+                cmd_wz,
+            )
+            time.sleep(period)
+
+        result.success = False
+        result.message = 'ROS shutdown during goal execution'
         goal_handle.abort()
-        return MoveToPose.Result(success=False, message="Node shutdown")
+        self._brake()
+        return self._finish_result(target_x, target_y, target_yaw_deg, result)
 
-    def _publish_cmd(self, vx, vy, vyaw):
-        self.cmd_pub.publish(Float32MultiArray(data=[float(vx), float(vy), float(vyaw)]))
+    def _wait_for_pose(self, goal_handle, target_x, target_y, target_yaw_deg, period):
+        start_time = time.monotonic()
+        while rclpy.ok() and self.latest_pose is None:
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self._brake()
+                return 'canceled'
+            if time.monotonic() - start_time > self.initial_pose_timeout_sec:
+                return 'timeout'
+            self._publish_feedback(
+                goal_handle,
+                Pose2D(0.0, 0.0, 0.0),
+                PHASE_WAITING_FOR_POSE,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+            time.sleep(period)
+        if self.latest_pose is None:
+            return 'timeout'
+        return 'ready'
 
-    def _stop(self):
-        self._publish_cmd(0.0, 0.0, 0.0)
+    def _publish_feedback(
+        self,
+        goal_handle,
+        pose,
+        phase,
+        yaw_error_rad,
+        distance_error,
+        error_x_body,
+        error_y_body,
+        cmd_vx,
+        cmd_vy,
+        cmd_wz,
+    ):
+        feedback = MoveToPose.Feedback()
+        feedback.distance_remaining = float(distance_error)
+        goal_handle.publish_feedback(feedback)
 
-    async def _sleep(self, sec):
-        import asyncio
-        await asyncio.sleep(sec)
+        # 记录调试数据（用于 PID 调试图表）
+        self._record_debug_values(
+            phase,
+            pose,
+            yaw_error_rad,
+            distance_error,
+            error_x_body,
+            error_y_body,
+            cmd_vx,
+            cmd_vy,
+            cmd_wz,
+        )
+
+    def _record_debug_values(
+        self,
+        phase,
+        pose,
+        yaw_error_rad,
+        distance_error,
+        error_x_body,
+        error_y_body,
+        cmd_vx,
+        cmd_vy,
+        cmd_wz,
+    ):
+        phase_ids = {
+            PHASE_WAITING_FOR_POSE: 0.0,
+            PHASE_YAW: 1.0,
+            PHASE_XY: 2.0,
+        }
+        values = {
+            'phase_id': phase_ids.get(phase, -1.0),
+            'current_x': pose.x,
+            'current_y': pose.y,
+            'current_yaw_deg': math.degrees(pose.yaw_rad),
+            'yaw_error_deg': math.degrees(yaw_error_rad),
+            'distance_error': distance_error,
+            'error_x_body': error_x_body,
+            'error_y_body': error_y_body,
+            'cmd_vx': cmd_vx,
+            'cmd_vy': cmd_vy,
+            'cmd_wz': cmd_wz,
+            'cmd_linear_speed': math.hypot(cmd_vx, cmd_vy),
+        }
+        self._record_debug_sample(values)
+
+    def _start_debug_recording(self):
+        self.debug_samples = []
+        self.debug_record_start_time = time.monotonic()
+
+    def _record_debug_sample(self, values):
+        if not self.enable_debug_plot_files:
+            return
+        if self.debug_record_start_time is None:
+            return
+
+        sample = {'time_sec': time.monotonic() - self.debug_record_start_time}
+        sample.update(values)
+        self.debug_samples.append(sample)
+
+    def _finish_result(self, target_x, target_y, target_yaw_deg, result):
+        self._save_debug_plot(target_x, target_y, target_yaw_deg, result)
+        return result
+
+    def _save_debug_plot(self, target_x, target_y, target_yaw_deg, result):
+        if not self.enable_debug_plot_files or len(self.debug_samples) < 2:
+            return
+
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+        except ImportError as exc:
+            self.get_logger().warning(
+                'Cannot save PID debug plot because matplotlib is missing: '
+                f'{exc}. Install python3-matplotlib.'
+            )
+            return
+
+        os.makedirs(self.debug_output_dir, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        status = 'success' if result.success else 'failed'
+        filename = (
+            f'move_to_pose_{timestamp}_{status}_'
+            f'x{target_x:.2f}_y{target_y:.2f}_yaw{target_yaw_deg:.1f}.png'
+        )
+        filepath = os.path.join(self.debug_output_dir, filename)
+
+        times = self._debug_series('time_sec')
+        fig, axes = plt.subplots(4, 1, figsize=(12, 12), sharex=True)
+        fig.suptitle(
+            'MoveToPose PID Debug\n'
+            f'target=({target_x:.3f}, {target_y:.3f}, {target_yaw_deg:.3f}deg), '
+            f'result={result.message}'
+        )
+
+        axes[0].plot(times, self._debug_series('distance_error'),
+                     label='distance_error[m]')
+        axes[0].plot(times, self._debug_series('yaw_error_deg'),
+                     label='yaw_error[deg]')
+        axes[0].set_ylabel('error')
+        axes[0].legend(loc='best')
+        axes[0].grid(True)
+
+        axes[1].plot(times, self._debug_series('error_x_body'),
+                     label='error_x_body[m]')
+        axes[1].plot(times, self._debug_series('error_y_body'),
+                     label='error_y_body[m]')
+        axes[1].set_ylabel('body error')
+        axes[1].legend(loc='best')
+        axes[1].grid(True)
+
+        axes[2].plot(times, self._debug_series('cmd_vx'),
+                     label='cmd_vx')
+        axes[2].plot(times, self._debug_series('cmd_vy'),
+                     label='cmd_vy')
+        axes[2].plot(times, self._debug_series('cmd_linear_speed'),
+                     label='cmd_linear_speed')
+        axes[2].set_ylabel('linear cmd')
+        axes[2].legend(loc='best')
+        axes[2].grid(True)
+
+        axes[3].plot(times, self._debug_series('cmd_wz'),
+                     label='cmd_wz')
+        axes[3].plot(times, self._debug_series('phase_id'),
+                     label='phase_id')
+        axes[3].set_ylabel('angular/phase')
+        axes[3].set_xlabel('time [s]')
+        axes[3].legend(loc='best')
+        axes[3].grid(True)
+
+        fig.tight_layout()
+        fig.savefig(filepath, dpi=140)
+        plt.close(fig)
+        self.get_logger().info(f'Saved PID debug plot: {filepath}')
+
+    def _debug_series(self, name):
+        return [sample[name] for sample in self.debug_samples]
+
+    def _distance_error(self, target_x, target_y, pose):
+        return math.hypot(target_x - pose.x, target_y - pose.y)
+
+    def _publish_velocity(self, vx, vy, wz):
+        msg = Float32MultiArray()
+        msg.data = [float(vx), float(vy), float(wz)]
+        self.velocity_pub.publish(msg)
+
+    def _publish_stop(self):
+        self._publish_velocity(0.0, 0.0, 0.0)
+
+    def _brake(self):
+        period = 1.0 / max(self.brake_frequency_hz, 1.0)
+        end_time = time.monotonic() + max(self.brake_duration_sec, 0.0)
+        self._publish_stop()
+        while time.monotonic() < end_time:
+            self._publish_stop()
+            time.sleep(period)
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = MoveToPoseActionServer()
-    rclpy.spin(node)
-    rclpy.shutdown()
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
+    try:
+        executor.spin()
+    finally:
+        node._publish_stop()
+        node.destroy_node()
+        rclpy.shutdown()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

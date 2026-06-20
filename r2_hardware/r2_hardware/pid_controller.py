@@ -46,3 +46,7 @@ class PIDController:
         """从给定当前值和设定值计算 PID 控制量"""
         error = setpoint_value - current_value
         return self.compute(error, dt)
+
+    def update(self, error, dt):
+        """与 compute 相同的接口，供 MoveToPose 等 Action Server 调用"""
+        return self.compute(error, dt)

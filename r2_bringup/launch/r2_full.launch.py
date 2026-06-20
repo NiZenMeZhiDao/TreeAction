@@ -16,8 +16,7 @@ r2_full.launch.py — 真实机器人全系统启动
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -42,19 +41,19 @@ def generate_launch_description():
     segment_topic_arg = DeclareLaunchArgument(
         'segment_topic',
         default_value='/planning/segments',
-        description='接收 Segment Plan 的 ROS2 Topic')
+        description='兼容旧 Segment Plan 的 ROS2 Topic')
 
-    enable_translator_arg = DeclareLaunchArgument(
-        'enable_translator',
-        default_value='true',
-        description='启动 meilin_translator (订阅 /mf_action_seq，发布 /planning/segments)')
+    mf_action_topic_arg = DeclareLaunchArgument(
+        'mf_action_topic',
+        default_value='/mf_action_seq',
+        description='接收梅林 move/fetch Float32MultiArray 的 ROS2 Topic')
 
     return LaunchDescription([
         tree_file_arg,
         groot2_port_arg,
         tick_frequency_arg,
         segment_topic_arg,
-        enable_translator_arg,
+        mf_action_topic_arg,
 
         # ---- 底层: USB 桥接 (下位机通信) ----
         Node(
@@ -115,24 +114,10 @@ def generate_launch_description():
                 'groot2_port': LaunchConfiguration('groot2_port'),
                 'tick_frequency': LaunchConfiguration('tick_frequency'),
                 'segment_topic': LaunchConfiguration('segment_topic'),
+                'mf_action_topic': LaunchConfiguration('mf_action_topic'),
             }],
         ),
 
-        # ---- 规划: 梅林翻译器 (外部 action sequence → segment JSON) ----
-        Node(
-            package='r2_planner',
-            executable='meilin_translator',
-            name='meilin_translator',
-            output='screen',
-            parameters=[{
-                'grid_size': 1.2,
-                'grid_origin': [1.2, 1.2],
-                'grasp_distance': 0.4,
-                'max_body_capacity': 3,
-                'is_red_zone': False,
-            }],
-            condition=IfCondition(
-                PythonExpression(["'", LaunchConfiguration('enable_translator'), "' == 'true'"])
-            ),
-        ),
+        # ---- 规划: meilin_translator 已废弃，bt_engine_node 直接订阅 /mf_action_seq ----
+
     ])

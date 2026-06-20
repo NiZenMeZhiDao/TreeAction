@@ -1,174 +1,50 @@
 <?xml version="1.0"?>
 <!--
-  meilin_stage.xml — 美林赛段行为树
+  meilin_stage.xml - 梅林赛段行为树
 
-  适用场景: 仅美林赛段 (MOVE2 → GRASP → CLIMB → STORE → EXIT)
-  数据驱动: 与 full_match.xml 相同的 blackboard 数据流
-  区别: 移除了 PrepareArea 和 FinalArea 子树, 只保留 MeilinArea 逻辑
-
-  支持的 segment_type: MOVE2, GRASP, CLIMB, STORE1, STORE2, EXIT
-
-  启动示例:
-    ros2 launch r2_bt bt_engine.launch.py tree_file:=meilin_stage.xml
+  树只分派 move/fetch；具体底盘、悬挂、机械臂编排封装在节点内部。
+  Move/Fetch 内部自行完成 grid→world、爬台计算、抓取位姿计算。
+  超时等配置从 blackboard 的 meilin_config 读取。
 -->
 <root BTCPP_format="4" main_tree_to_execute="MeilinStage">
   <BehaviorTree ID="MeilinStage">
-    <Sequence>
-      <PopNextSegment queue="{segment_queue}"
-                      current_segment_index="{current_segment_index}"
-                      segment_type="{segment_type}"
-                      segment_debug_name="{segment_debug_name}"
-                      target_x="{target_x}"
-                      target_y="{target_y}"
-                      target_yaw="{target_yaw}"
-                      max_speed="{max_speed}"
-                      timeout_sec="{timeout_sec}"
-                      climb_mode="{climb_mode}"
-                      climb_direction="{climb_direction}"
-                      climb_height="{climb_height}"
-                      arm_command="{arm_command}"
-                      wait_result="{wait_result}"
-                      spear_command="{spear_command}"/>
+    <ForEachSegment stop_type="PLAN_DONE">
+      <Sequence>
+        <PopNextMeilinSegment queue="{segment_queue}"
+                              segment_type="{segment_type}"
+                              move_row="{move_row}"
+                              move_col="{move_col}"
+                              target_height_mm="{target_height_mm}"
+                              kfs_row="{kfs_row}"
+                              kfs_col="{kfs_col}"
+                              height_diff="{height_diff}"
+                              target_yaw="{target_yaw}"/>
 
-      <Fallback>
-        <Sequence>
-          <IsSegmentType expected="MOVE2" actual="{segment_type}"/>
-          <RetrySegment num_attempts="3">
-            <MoveToPose target_x="{target_x}"
-                        target_y="{target_y}"
-                        target_yaw="{target_yaw}"
-                        max_speed="{max_speed}"
-                        timeout_sec="{timeout_sec}"
-                        error_msg="{last_error}"/>
-          </RetrySegment>
-        </Sequence>
+        <SwitchSegmentType segment_type="{segment_type}">
+          <Move name="move"
+                move_row="{move_row}"
+                move_col="{move_col}"
+                target_height_mm="{target_height_mm}"
+                target_yaw="{target_yaw}"
+                message="{last_error}"/>
 
-        <Sequence>
-          <IsSegmentType expected="GRASP" actual="{segment_type}"/>
-          <RetrySegment num_attempts="3">
-            <Sequence>
-              <SuspensionControl mode="{grasp_suspension_mode}"
-                                 direction="0"
-                                 height="{height_diff}"
-                                 timeout_sec="10.0"
-                                 message="{last_error}"/>
-              <ArmAction command="{arm_command}"
-                         wait_result="true"
-                         timeout_sec="{timeout_sec}"
-                         message="{last_error}"/>
-            </Sequence>
-          </RetrySegment>
-        </Sequence>
+          <Fetch name="fetch"
+                 kfs_row="{kfs_row}"
+                 kfs_col="{kfs_col}"
+                 height_diff="{height_diff}"
+                 target_yaw="{target_yaw}"
+                 message="{last_error}"/>
 
-        <Sequence>
-          <IsSegmentType expected="CLIMB" actual="{segment_type}"/>
-          <IsStringNonEmpty value="{arm_command}"/>
-          <Fallback>
-            <RetrySegment num_attempts="3">
-              <Parallel success_count="3" failure_count="1">
-                <SuspensionControl mode="{climb_mode}"
-                                   direction="{climb_direction}"
-                                   height="{climb_height}"
-                                   timeout_sec="{timeout_sec}"
-                                   message="{last_error}"/>
-                <MoveToPose target_x="{target_x}"
-                            target_y="{target_y}"
-                            target_yaw="{target_yaw}"
-                            max_speed="{max_speed}"
-                            timeout_sec="{timeout_sec}"
-                            error_msg="{last_error}"/>
-                <ArmAction command="{arm_command}"
-                           wait_result="{wait_result}"
-                           timeout_sec="{timeout_sec}"
-                           message="{last_error}"/>
-              </Parallel>
-            </RetrySegment>
-            <ForceFailure>
-              <SuspensionControl mode="3"
-                                 direction="0"
-                                 height="0.0"
-                                 timeout_sec="10.0"
-                                 message="{last_error}"/>
-            </ForceFailure>
-          </Fallback>
-        </Sequence>
+          <Sequence name="PLAN_DONE">
+            <SetDebugStatus execution_state="MISSION_SUCCESS" active_action="" last_error=""/>
+          </Sequence>
 
-        <Sequence>
-          <IsSegmentType expected="CLIMB" actual="{segment_type}"/>
-          <IsStringEmpty value="{arm_command}"/>
-          <Fallback>
-            <RetrySegment num_attempts="3">
-              <Parallel success_count="2" failure_count="1">
-                <SuspensionControl mode="{climb_mode}"
-                                   direction="{climb_direction}"
-                                   height="{climb_height}"
-                                   timeout_sec="{timeout_sec}"
-                                   message="{last_error}"/>
-                <MoveToPose target_x="{target_x}"
-                            target_y="{target_y}"
-                            target_yaw="{target_yaw}"
-                            max_speed="{max_speed}"
-                            timeout_sec="{timeout_sec}"
-                            error_msg="{last_error}"/>
-              </Parallel>
-            </RetrySegment>
-            <ForceFailure>
-              <SuspensionControl mode="3"
-                                 direction="0"
-                                 height="0.0"
-                                 timeout_sec="10.0"
-                                 message="{last_error}"/>
-            </ForceFailure>
-          </Fallback>
-        </Sequence>
-
-        <Sequence>
-          <IsSegmentType expected="STORE1" actual="{segment_type}"/>
-          <RetrySegment num_attempts="3">
-            <ArmAction command="{arm_command}"
-                       wait_result="{wait_result}"
-                       timeout_sec="{timeout_sec}"
-                       message="{last_error}"/>
-          </RetrySegment>
-        </Sequence>
-
-        <Sequence>
-          <IsSegmentType expected="STORE2" actual="{segment_type}"/>
-          <RetrySegment num_attempts="3">
-            <ArmAction command="{arm_command}"
-                       wait_result="{wait_result}"
-                       timeout_sec="{timeout_sec}"
-                       message="{last_error}"/>
-          </RetrySegment>
-        </Sequence>
-
-        <Sequence>
-          <IsSegmentType expected="EXIT" actual="{segment_type}"/>
-          <RetrySegment num_attempts="3">
-            <Sequence>
-              <ArmAction command="{arm_command}"
-                         wait_result="true"
-                         timeout_sec="{timeout_sec}"
-                         message="{last_error}"/>
-              <SuspensionControl mode="3"
-                                 direction="0"
-                                 height="0.0"
-                                 timeout_sec="10.0"
-                                 message="{last_error}"/>
-              <MoveToPose target_x="{target_x}"
-                          target_y="{target_y}"
-                          target_yaw="{target_yaw}"
-                          max_speed="{max_speed}"
-                          timeout_sec="{timeout_sec}"
-                          error_msg="{last_error}"/>
-            </Sequence>
-          </RetrySegment>
-        </Sequence>
-
-        <SetDebugStatus execution_state="ACTION_FAILED"
-                        active_action="SegmentDispatch"
-                        last_error="Unsupported segment_type"/>
-      </Fallback>
-    </Sequence>
+          <Sequence name="default">
+            <SetDebugStatus execution_state="ACTION_FAILED" active_action="MeilinDispatch"
+                            last_error="Unsupported segment_type in MeilinStage"/>
+          </Sequence>
+        </SwitchSegmentType>
+      </Sequence>
+    </ForEachSegment>
   </BehaviorTree>
 </root>

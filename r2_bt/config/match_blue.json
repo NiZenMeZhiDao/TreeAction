@@ -1,0 +1,95 @@
+{
+  "match_side": "blue",
+
+  "prepare": {
+    "spear_prep": {
+      "spear_command": "prep",
+      "target_x": 0.50,
+      "target_y": -0.20,
+      "target_yaw": 3.14,
+      "max_speed": 0.30,
+      "timeout_sec": 10.0
+    },
+    "spear_grasp": {
+      "spear_command": "grasp",
+      "timeout_sec": 8.0
+    },
+    "align": {
+      "target_x": 1.00,
+      "target_y": -0.30,
+      "target_yaw": 3.14,
+      "max_speed": 0.30,
+      "timeout_sec": 10.0
+    },
+    "dock": {
+      "timeout_sec": 20.0
+    }
+  },
+
+  "meilin": {
+    "segments": [
+      {
+        "type": "MOVE2",
+        "debug_name": "meilin_move_01",
+        "target_x": 1.00,
+        "target_y": -0.50,
+        "target_yaw": 3.14,
+        "max_speed": 0.40,
+        "timeout_sec": 10.0
+      },
+      {
+        "type": "GRASP",
+        "debug_name": "meilin_grasp_01",
+        "arm_command": "grasp",
+        "wait_result": true,
+        "grasp_suspension_mode": 1,
+        "height_diff": 30.0,
+        "timeout_sec": 15.0
+      },
+      {
+        "type": "EXIT",
+        "debug_name": "meilin_exit",
+        "target_x": 0.00,
+        "target_y": 0.00,
+        "target_yaw": 3.14,
+        "max_speed": 0.40,
+        "arm_command": "idle",
+        "wait_result": true,
+        "timeout_sec": 20.0
+      }
+    ]
+  },
+
+  "final": {
+    "move2": {
+      "target_x": 2.10,
+      "target_y": -0.80,
+      "target_yaw": 3.14,
+      "max_speed": 0.50,
+      "timeout_sec": 10.0
+    },
+    "final_move2": {
+      "target_x": 2.80,
+      "target_y": -1.20,
+      "target_yaw": 4.71,
+      "max_speed": 0.40,
+      "timeout_sec": 12.0
+    },
+    "place_mid": {
+      "arm_command": "place_mid",
+      "timeout_sec": 15.0
+    },
+    "place_high": {
+      "arm_command": "place_high",
+      "timeout_sec": 15.0
+    },
+    "finish": {
+      "arm_command": "idle",
+      "timeout_sec": 15.0,
+      "suspension_mode": 3,
+      "suspension_direction": 0,
+      "suspension_height": 30.0,
+      "suspension_timeout_sec": 10.0
+    }
+  }
+}

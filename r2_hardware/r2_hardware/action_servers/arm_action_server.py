@@ -96,7 +96,7 @@ class ArmActionServer(Node):
 
     # ---- Action Server 回调 ----
     def _goal_callback(self, goal_request):
-        cmd = goal_request.command
+        cmd = goal_request.command  
         valid_commands = [
             0,  # idle
             1,  # grasp
@@ -105,8 +105,6 @@ class ArmActionServer(Node):
             4,  # get_body
             5,  # place_mid
             6,  # place_high
-            7,  # safe_pose
-            8,  # prepare_grasp
         ]
         if cmd not in valid_commands:
             self.get_logger().warn(f'Rejecting unknown arm command: {cmd}')
@@ -252,8 +250,6 @@ class ArmActionServer(Node):
             4 = get_body (从车体取出到手臂)
             5 = place_mid (放置到中层)
             6 = place_high (放置到上层)
-            7 = safe_pose (安全位)
-            8 = prepare_grasp (准备抓取)
         """
         cmd_map = {
             0: [0.0, 0.0, 0.0, 0.0],
@@ -263,8 +259,6 @@ class ArmActionServer(Node):
             4: [4.0, 0.0, 0.0, 0.0],
             5: [5.0, 0.0, 0.0, 0.0],
             6: [6.0, 0.0, 0.0, 0.0],
-            7: [7.0, 0.0, 0.0, 0.0],
-            8: [7.0, 0.0, 0.0, 0.0],
         }
 
         data = cmd_map.get(command, [0.0, 0.0, 0.0, 0.0])
@@ -276,8 +270,6 @@ class ArmActionServer(Node):
             4: ArmState.MOVING,
             5: ArmState.PLACING,
             6: ArmState.PLACING,
-            7: ArmState.RECOVERING,
-            8: ArmState.RECOVERING,
         }
         self.current_state = state_map.get(command, ArmState.IDLE)
 
@@ -285,8 +277,8 @@ class ArmActionServer(Node):
         self.get_logger().debug(f'Dispatched arm command: {command} -> {data}')
 
     def _send_safe_command(self):
-        """发送安全位/停止指令"""
-        self.pub_action.publish(Float32MultiArray(data=[7.0, 0.0, 0.0, 0.0]))
+        """发送停止指令"""
+        self.pub_action.publish(Float32MultiArray(data=[0.0, 0.0, 0.0, 0.0]))
 
     # ---- 完成检测 ----
     def _is_command_done(self, command: int) -> bool:
@@ -310,7 +302,6 @@ class ArmActionServer(Node):
             4: 2.0,  # get_body
             5: 3.0,  # place_mid
             6: 3.0,  # place_high
-            7: 1.5,  # safe_pose
             0: 0.1,  # idle
         }
         expected = expected_times.get(command, timeout)

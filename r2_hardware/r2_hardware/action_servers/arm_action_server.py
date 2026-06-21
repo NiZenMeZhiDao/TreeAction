@@ -20,8 +20,6 @@ from r2_interfaces.action import ArmAction
 from std_msgs.msg import Float32MultiArray, Bool
 import math
 import time
-import asyncio
-
 
 class ArmState:
     """机械臂状态机"""
@@ -123,7 +121,7 @@ class ArmActionServer(Node):
         self.current_command = ''
         return CancelResponse.ACCEPT
 
-    async def _execute_callback(self, goal_handle: ServerGoalHandle):
+    def _execute_callback(self, goal_handle: ServerGoalHandle):
         command = goal_handle.request.command
         wait_result = goal_handle.request.wait_result
         timeout_sec = float(goal_handle.request.timeout_sec)
@@ -231,7 +229,7 @@ class ArmActionServer(Node):
                     elapsed_sec=float(elapsed_sec),
                 )
 
-            await self._sleep_async(1.0 / self.control_freq)
+            time.sleep(1.0 / self.control_freq)
 
         goal_handle.abort()
         self.current_state = ArmState.IDLE
@@ -245,8 +243,8 @@ class ArmActionServer(Node):
             ),
         )
 
-    async def _sleep_async(self, duration_sec):
-        await asyncio.sleep(duration_sec)
+    def _sleep_async(self, duration_sec):
+        time.sleep(duration_sec)
 
     def _publish_runtime_state(self):
         """发布后台动作状态到 /arm_runtime_state topic"""

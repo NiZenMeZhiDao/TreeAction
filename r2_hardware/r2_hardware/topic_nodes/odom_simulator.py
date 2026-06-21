@@ -11,8 +11,7 @@ import math
 from typing import Optional
 
 import rclpy
-from geometry_msgs.msg import TransformStamped, PoseWithCovarianceStamped
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped, TransformStamped, PoseWithCovarianceStamped
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 from tf2_ros import TransformBroadcaster
@@ -32,8 +31,8 @@ class OdomSimulator(Node):
         self.declare_parameter("grid_resolution", 1.2)
         self.declare_parameter("start_row", -1)
         self.declare_parameter("start_col", 0)
-        self.declare_parameter("cmd_vel", "/cmd_vel")
-        self.declare_parameter("odom_world", "/odom_world")
+        self.declare_parameter("cmd_vel", "/t0x0101_pid")
+        self.declare_parameter("odom_world", "/odin1/relocation")
 
         odom_frame = (
             self.get_parameter("odom_frame").get_parameter_value().string_value
@@ -56,8 +55,11 @@ class OdomSimulator(Node):
         start_row = self.get_parameter("start_row").value
         start_col = self.get_parameter("start_col").value
 
-        start_x = 0.0
-        start_y = 0.0
+        # 梅林区仿真：初始位置设为 grid origin (1.2, 1.2) = grid (0,0)
+        grid_res = self.get_parameter("grid_resolution").value
+        origin = self.get_parameter("map_origin").value
+        start_x = origin[0] if len(origin) >= 1 else 1.2
+        start_y = origin[1] if len(origin) >= 2 else 1.2
 
         self._pose_x = start_x
         self._pose_y = start_y
@@ -79,7 +81,7 @@ class OdomSimulator(Node):
             10,
         )
         self._odom_pub = self.create_publisher(
-            Odometry, self.get_parameter("odom_world").value, 10
+            PoseStamped, self.get_parameter("odom_world").value, 10
         )
         self._tf_broadcaster = TransformBroadcaster(self)
 
@@ -159,22 +161,18 @@ class OdomSimulator(Node):
         self._yaw += wz * dt
         self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
 
-        odom_msg = Odometry()
-        odom_msg.header.stamp = now
-        odom_msg.header.frame_id = self._odom_frame
-        odom_msg.child_frame_id = self._base_frame
-        odom_msg.pose.pose.position.x = self._pose_x
-        odom_msg.pose.pose.position.y = self._pose_y
-        odom_msg.pose.pose.position.z = self._pose_z
-
         half_yaw = self._yaw * 0.5
-        odom_msg.pose.pose.orientation.z = math.sin(half_yaw)
-        odom_msg.pose.pose.orientation.w = math.cos(half_yaw)
-        odom_msg.twist.twist.linear.x = vx_global
-        odom_msg.twist.twist.linear.y = vy_global
-        odom_msg.twist.twist.angular.z = wz
 
-        self._odom_pub.publish(odom_msg)
+        pose_msg = PoseStamped()
+        pose_msg.header.stamp = now
+        pose_msg.header.frame_id = self._odom_frame
+        pose_msg.pose.position.x = self._pose_x
+        pose_msg.pose.position.y = self._pose_y
+        pose_msg.pose.position.z = self._pose_z
+        pose_msg.pose.orientation.z = math.sin(half_yaw)
+        pose_msg.pose.orientation.w = math.cos(half_yaw)
+
+        self._odom_pub.publish(pose_msg)
 
         t = TransformStamped()
         t.header.stamp = now

@@ -68,10 +68,7 @@ BT::NodeStatus SwitchSegmentType::tick()
 
 void SwitchSegmentType::halt()
 {
-  if (current_child_idx_ < childrenCount())
-  {
-    haltChild(current_child_idx_);
-  }
+  haltChildren();
   current_child_idx_ = 0;
 }
 

@@ -113,7 +113,7 @@ class SpearActionServer(Node):
         self.current_command = ''
         return CancelResponse.ACCEPT
 
-    async def _execute_callback(self, goal_handle: ServerGoalHandle):
+    def _execute_callback(self, goal_handle: ServerGoalHandle):
         command = goal_handle.request.command
         timeout_sec = float(goal_handle.request.timeout_sec)
 
@@ -171,7 +171,7 @@ class SpearActionServer(Node):
                     elapsed_sec=float(elapsed_sec),
                 )
 
-            await self._sleep_async(1.0 / self.control_freq)
+            time.sleep(1.0 / self.control_freq)
 
         goal_handle.abort()
         self.current_state = SpearState.IDLE
@@ -184,9 +184,8 @@ class SpearActionServer(Node):
             ),
         )
 
-    async def _sleep_async(self, duration_sec):
-        import asyncio
-        await asyncio.sleep(duration_sec)
+    def _sleep_async(self, duration_sec):
+        time.sleep(duration_sec)
 
     # ---- 命令分发 ----
     def _dispatch_command(self, command: int):

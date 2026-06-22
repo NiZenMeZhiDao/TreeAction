@@ -177,7 +177,9 @@ public:
         meilin_pose_topic_, rclcpp::QoS(10),
         std::bind(&BtEngineNode::meilin_pose_callback, this, std::placeholders::_1));
 
-    build_fixed_tree();
+    // NOTE: build_fixed_tree() 延迟到首次 tick_callback 执行，
+    // 此时 shared_from_this() 已合法（make_shared 已完成），ros_node
+    // 可在建树前写入 blackboard，确保所有 SubTree 节点都能访问。
 
     auto tick_period = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::duration<double>(1.0 / tick_freq));
@@ -980,6 +982,18 @@ private:
     {
       current_tree_ = std::make_unique<BT::Tree>(
           factory_.createTreeFromFile(tree_path, blackboard_));
+
+      // BT.CPP 4.x SubTree 创建隔离黑board，根黑board 的 key 不会自动可见。
+      // 需要向所有 subtree 黑board 注入 ros_node，否则 PrepareArea/FinalArea
+      // 内的 SpearAction/Align/ArmAction 等节点会因找不到 ros_node 而崩溃。
+      blackboard_->set("ros_node", shared_from_this());
+      for (auto& subtree : current_tree_->subtrees)
+      {
+        subtree->blackboard->set("ros_node", shared_from_this());
+        RCLCPP_DEBUG(get_logger(), "Injected ros_node into subtree blackboard: %s",
+                     subtree->tree_ID.c_str());
+      }
+
       try
       {
         groot2_publisher_ = std::make_unique<BT::Groot2Publisher>(
@@ -1002,14 +1016,23 @@ private:
 
   void tick_callback()
   {
-    if (current_tree_)
+    if (!current_tree_)
     {
+      // 延迟初始化：此时 make_shared 已完成，shared_from_this() 合法
       blackboard_->set("ros_node", shared_from_this());
-      auto status = current_tree_->tickOnce();
-      if (status == BT::NodeStatus::FAILURE)
+      build_fixed_tree();
+      if (!current_tree_)
       {
-        blackboard_->set("execution_state", std::string{"MISSION_FAILED"});
+        RCLCPP_ERROR(get_logger(), "Tree build failed; BT Engine idle.");
+        return;
       }
+    }
+
+    blackboard_->set("ros_node", shared_from_this());
+    auto status = current_tree_->tickOnce();
+    if (status == BT::NodeStatus::FAILURE)
+    {
+      blackboard_->set("execution_state", std::string{"MISSION_FAILED"});
     }
   }
 

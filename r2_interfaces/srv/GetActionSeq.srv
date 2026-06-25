@@ -1,0 +1,4 @@
+bool dummy
+---
+std_msgs/Float32MultiArray data
+bool has_data

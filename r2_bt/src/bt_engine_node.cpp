@@ -3,6 +3,7 @@
 #include <behaviortree_cpp/loggers/groot2_publisher.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nlohmann/json.hpp>
+#include <r2_interfaces/srv/get_action_seq.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -49,6 +50,7 @@ public:
     declare_parameter("tick_frequency", 100.0);
     declare_parameter("segment_topic", "/planning/segments");
     declare_parameter("mf_action_topic", "/mf_action_seq");
+    declare_parameter("buffer_service", "/get_action_seq");
     declare_parameter("tree_file", "full_match.xml");
     declare_parameter("match_config", "");
 
@@ -74,6 +76,7 @@ public:
     double tick_freq = get_parameter("tick_frequency").as_double();
     segment_topic_ = get_parameter("segment_topic").as_string();
     mf_action_topic_ = get_parameter("mf_action_topic").as_string();
+    buffer_service_ = get_parameter("buffer_service").as_string();
     tree_file_ = get_parameter("tree_file").as_string();
     match_config_ = get_parameter("match_config").as_string();
     load_meilin_parameters();
@@ -166,16 +169,21 @@ public:
                   "blackboard variables — ensure they are set before tick.");
     }
 
+    // === 暂存区 Service Client（替代直接订阅 /mf_action_seq） ===
+    buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
+
     // === 订阅 ===
     segment_sub_ = create_subscription<std_msgs::msg::String>(
         segment_topic_, rclcpp::QoS(1).reliable().transient_local(),
         std::bind(&BtEngineNode::segment_callback, this, std::placeholders::_1));
-    mf_action_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
-        mf_action_topic_, rclcpp::QoS(1).reliable().transient_local(),
-        std::bind(&BtEngineNode::mf_action_callback, this, std::placeholders::_1));
     meilin_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
         meilin_pose_topic_, rclcpp::QoS(10),
         std::bind(&BtEngineNode::meilin_pose_callback, this, std::placeholders::_1));
+
+    // 定时轮询暂存区（2 Hz）
+    buffer_poll_timer_ = create_wall_timer(
+        std::chrono::milliseconds(500),
+        std::bind(&BtEngineNode::buffer_poll_callback, this));
 
     build_fixed_tree();
 
@@ -186,9 +194,9 @@ public:
 
     RCLCPP_INFO(get_logger(),
                 "BT Engine started: tick=%.1fHz, groot2_port=%u, segment_topic=%s, "
-                "mf_action_topic=%s, meilin_pose_topic=%s, tree_file=%s, match_config=%s",
+                "buffer_service=%s, meilin_pose_topic=%s, tree_file=%s, match_config=%s",
                 tick_freq, groot2_port_, segment_topic_.c_str(),
-                mf_action_topic_.c_str(), meilin_pose_topic_.c_str(), tree_file_.c_str(),
+                buffer_service_.c_str(), meilin_pose_topic_.c_str(), tree_file_.c_str(),
                 match_config_.empty() ? "(none)" : match_config_.c_str());
   }
 
@@ -690,10 +698,10 @@ private:
   }
 
   // =========================================================================
-  // /mf_action_seq 回调
+  // 暂存区轮询（替代直接订阅 /mf_action_seq）
   // =========================================================================
 
-  void mf_action_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
+  void process_action_seq(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
   {
     std::string plan_id;
     std::string error;
@@ -731,6 +739,30 @@ private:
 
     RCLCPP_INFO(get_logger(), "Meilin plan accepted: plan_id=%s, actions=%zu",
                 plan_id.c_str(), segments.size() - 1);
+  }
+
+  void buffer_poll_callback()
+  {
+    // 只在等待新计划时才拉取暂存区
+    std::string state;
+    blackboard_->get("execution_state", state);
+    if (state != "WAITING_MF_ACTION_SEQ" && state != "WAITING_PLAN" && state != "IDLE")
+      return;
+
+    if (!buffer_client_->service_is_ready())
+      return;
+
+    auto request = std::make_shared<r2_interfaces::srv::GetActionSeq::Request>();
+    buffer_client_->async_send_request(request,
+        [this](rclcpp::Client<r2_interfaces::srv::GetActionSeq>::SharedFuture future) {
+          auto response = future.get();
+          if (!response->has_data) return;
+
+          auto msg = std::make_shared<std_msgs::msg::Float32MultiArray>();
+          msg->data = response->data.data;
+          msg->layout = response->data.layout;
+          process_action_seq(msg);
+        });
   }
 
   // =========================================================================
@@ -1023,13 +1055,17 @@ private:
   std::unique_ptr<BT::Groot2Publisher> groot2_publisher_;
 
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr segment_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr mf_action_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr meilin_pose_sub_;
   rclcpp::TimerBase::SharedPtr tick_timer_;
+  rclcpp::TimerBase::SharedPtr buffer_poll_timer_;
+
+  // 暂存区 Service Client
+  rclcpp::Client<r2_interfaces::srv::GetActionSeq>::SharedPtr buffer_client_;
 
   unsigned groot2_port_ = 1667;
   std::string segment_topic_;
   std::string mf_action_topic_;
+  std::string buffer_service_;
   std::string meilin_pose_topic_;
   std::string tree_file_;
   std::string match_config_;

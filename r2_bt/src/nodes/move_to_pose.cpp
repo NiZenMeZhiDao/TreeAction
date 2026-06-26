@@ -22,6 +22,8 @@ BT::PortsList MoveToPose::providedPorts()
     BT::InputPort<double>("target_y", "Target Y in map frame (m)"),
     BT::InputPort<double>("target_yaw", "Target yaw angle in map frame (rad)"),
     BT::InputPort<double>("max_speed", "Max chassis speed (m/s), default 0.5"),
+    BT::InputPort<int>("pid_profile", MoveToPoseAction::Goal::PID_PROFILE_FAST,
+                       "PID profile: 0=slow, 1=fast"),
     BT::InputPort<double>("timeout_sec", 30.0, "Abort action after this many seconds"),
     BT::InputPort<std::string>("frame_id", "map", "Coordinate frame for target pose"),
     BT::OutputPort<std::string>("error_msg", "Error description on failure"),
@@ -51,6 +53,8 @@ BT::NodeStatus MoveToPose::onStart()
   auto res_y = getInput<double>("target_y");
   auto res_yaw = getInput<double>("target_yaw");
   auto res_speed = getInput<double>("max_speed");
+  const int pid_profile =
+      getInput<int>("pid_profile").value_or(MoveToPoseAction::Goal::PID_PROFILE_FAST);
   timeout_sec_ = getInput<double>("timeout_sec").value_or(30.0);
 
   if (!res_x || !res_y || !res_yaw)
@@ -66,6 +70,14 @@ BT::NodeStatus MoveToPose::onStart()
   double max_speed = res_speed.has_value() ? res_speed.value() : 0.5;
   std::string frame_id = getInput<std::string>("frame_id").value_or("map");
 
+  if (pid_profile != MoveToPoseAction::Goal::PID_PROFILE_SLOW &&
+      pid_profile != MoveToPoseAction::Goal::PID_PROFILE_FAST)
+  {
+    error_msg_ = "Invalid pid_profile for MoveToPose; expected 0(slow) or 1(fast)";
+    RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
+    return BT::NodeStatus::FAILURE;
+  }
+
   if (std::isnan(target_x) || std::isnan(target_y) || std::isnan(target_yaw))
   {
     error_msg_ = "Target pose contains NaN";
@@ -77,15 +89,24 @@ BT::NodeStatus MoveToPose::onStart()
   goal.x = target_x;
   goal.y = target_y;
   goal.yaw_deg = target_yaw * 180.0 / M_PI;
+  goal.pid_profile = static_cast<uint8_t>(pid_profile);
 
   if (!action_client_)
   {
-    action_client_ = rclcpp_action::create_client<MoveToPoseAction>(node_, "move_to_pose");
+    rclcpp_action::Client<MoveToPoseAction>::SharedPtr shared_client;
+    if (config().blackboard->get("move_to_pose_client", shared_client) && shared_client)
+    {
+      action_client_ = shared_client;
+    }
+    else
+    {
+      action_client_ = rclcpp_action::create_client<MoveToPoseAction>(node_, "move_to_pose");
+    }
   }
 
   if (!action_client_->action_server_is_ready())
   {
-    error_msg_ = "Motion_control_accurate /move_to_pose action server not available";
+    error_msg_ = "/move_to_pose action server not available";
     RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
     return BT::NodeStatus::FAILURE;
   }
@@ -124,9 +145,10 @@ BT::NodeStatus MoveToPose::onStart()
   action_client_->async_send_goal(goal, send_goal_options);
 
   RCLCPP_INFO(node_->get_logger(),
-              "[MoveToPose] Motion_control_accurate goal sent: x=%.3f y=%.3f yaw_deg=%.1f "
-              "frame=%s speed_port=%.2f",
-              target_x, target_y, goal.yaw_deg, frame_id.c_str(), max_speed);
+              "[MoveToPose] goal sent: x=%.3f y=%.3f yaw_deg=%.1f "
+              "pid_profile=%u frame=%s speed_port=%.2f",
+              target_x, target_y, goal.yaw_deg, goal.pid_profile,
+              frame_id.c_str(), max_speed);
 
   return BT::NodeStatus::RUNNING;
 }

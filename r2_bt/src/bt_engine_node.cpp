@@ -3,8 +3,10 @@
 #include <behaviortree_cpp/loggers/groot2_publisher.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nlohmann/json.hpp>
+#include <r2_interfaces/action/move_to_pose.hpp>
 #include <r2_interfaces/srv/get_action_seq.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
 
@@ -19,8 +21,8 @@
 #include <utility>
 #include <vector>
 
-#include "r2_bt/nodes/actions/align.hpp"
 #include "r2_bt/nodes/actions/arm_action.hpp"
+#include "r2_bt/nodes/actions/ares_tool_action.hpp"
 #include "r2_bt/nodes/actions/meilin_fetch.hpp"
 #include "r2_bt/nodes/actions/meilin_move.hpp"
 #include "r2_bt/nodes/actions/move_to_pose.hpp"
@@ -89,7 +91,7 @@ public:
     factory_.registerNodeType<r2_bt::PopNextMeilinSegment>("PopNextMeilinSegment");
     factory_.registerNodeType<r2_bt::SuspensionControl>("SuspensionControl");
     factory_.registerNodeType<r2_bt::SpearAction>("SpearAction");
-    factory_.registerNodeType<r2_bt::Align>("Align");
+    factory_.registerNodeType<r2_bt::AresToolAction>("AresToolAction");
     factory_.registerNodeType<r2_bt::ArmAction>("ArmAction");
     factory_.registerNodeType<r2_bt::WaitArmIdle>("WaitArmIdle");
     factory_.registerNodeType<r2_bt::SwitchSegmentType>("SwitchSegmentType");
@@ -115,6 +117,16 @@ public:
     blackboard_->set("retry_count", 0);
     blackboard_->set("last_error", std::string{});
     blackboard_->set("execution_state", std::string{"WAITING_PLAN"});
+
+    move_to_pose_client_ =
+        rclcpp_action::create_client<MoveToPoseAction>(
+            get_node_base_interface(),
+            get_node_graph_interface(),
+            get_node_logging_interface(),
+            get_node_waitables_interface(),
+            "move_to_pose");
+    blackboard_->set("move_to_pose_client", move_to_pose_client_);
+    RCLCPP_INFO(get_logger(), "Prewarmed shared MoveToPose client for /move_to_pose");
 
     // 梅林区静态配置（Move/Fetch 内部计算用）
     auto meilin_cfg = std::make_shared<r2_bt::MeilinConfig>();
@@ -308,7 +320,7 @@ private:
     }
 
     const std::vector<std::string> required_sections = {
-      "prepare.spear_prep", "prepare.spear_grasp", "prepare.align", "prepare.dock",
+      "prepare.spear_prep", "prepare.ares_tool",
       "final.move2", "final.final_move2", "final.place_mid", "final.place_high", "final.finish"
     };
     for (const auto& path : required_sections)
@@ -346,23 +358,21 @@ private:
       blackboard_->set("prepare_spear_prep_target_y", spear_prep.value("target_y", 0.0));
       blackboard_->set("prepare_spear_prep_target_yaw", spear_prep.value("target_yaw", 0.0));
       blackboard_->set("prepare_spear_prep_max_speed", spear_prep.value("max_speed", 0.5));
+      blackboard_->set("prepare_spear_prep_pid_profile", spear_prep.value("pid_profile", 1));
       blackboard_->set("prepare_spear_prep_timeout_sec", spear_prep.value("timeout_sec", 30.0));
 
-      const auto& spear_grasp = p["spear_grasp"];
-      blackboard_->set("prepare_spear_grasp_spear_command",
-                       parse_spear_command_str(spear_grasp.value("spear_command", "grasp")));
-      blackboard_->set("prepare_spear_grasp_timeout_sec", spear_grasp.value("timeout_sec", 30.0));
-
-      const auto& align = p["align"];
-      blackboard_->set("prepare_align_target_x", align.value("target_x", 0.0));
-      blackboard_->set("prepare_align_target_y", align.value("target_y", 0.0));
-      blackboard_->set("prepare_align_target_yaw", align.value("target_yaw", 0.0));
-      blackboard_->set("prepare_align_max_speed", align.value("max_speed", 0.5));
-      blackboard_->set("prepare_align_timeout_sec", align.value("timeout_sec", 30.0));
-
-      const auto& dock = p["dock"];
-      blackboard_->set("prepare_dock_timeout_sec", dock.value("timeout_sec", 30.0));
-      RCLCPP_INFO(get_logger(), "PrepareArea params loaded: 4 segments");
+      const auto& ares_tool = p["ares_tool"];
+      blackboard_->set("prepare_ares_tool_action",
+                       ares_tool.value("action", "grasp"));
+      blackboard_->set("prepare_ares_tool_service_name",
+                       ares_tool.value("service_name", "/ares_tool_node/tool_action"));
+      blackboard_->set("prepare_ares_tool_timeout_sec",
+                       ares_tool.value("timeout_sec", 30.0));
+      blackboard_->set("prepare_ares_tool_arg0", ares_tool.value("arg0", 0.0));
+      blackboard_->set("prepare_ares_tool_arg1", ares_tool.value("arg1", 0.0));
+      blackboard_->set("prepare_ares_tool_arg2", ares_tool.value("arg2", 0.0));
+      blackboard_->set("prepare_ares_tool_arg3", ares_tool.value("arg3", 0.0));
+      RCLCPP_INFO(get_logger(), "PrepareArea params loaded: move + ares_tool service");
     }
 
     // FinalArea 参数
@@ -1055,6 +1065,8 @@ private:
   // 成员变量
   // =========================================================================
 
+  using MoveToPoseAction = r2_interfaces::action::MoveToPose;
+
   BT::BehaviorTreeFactory factory_;
   BT::Blackboard::Ptr blackboard_;
   std::unique_ptr<BT::Tree> current_tree_;
@@ -1067,6 +1079,7 @@ private:
 
   // 暂存区 Service Client
   rclcpp::Client<r2_interfaces::srv::GetActionSeq>::SharedPtr buffer_client_;
+  rclcpp_action::Client<MoveToPoseAction>::SharedPtr move_to_pose_client_;
 
   unsigned groot2_port_ = 1667;
   std::string segment_topic_;

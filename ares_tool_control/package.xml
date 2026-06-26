@@ -10,7 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>ares_tool_interfaces</depend>
+  <depend>r2_interfaces</depend>
   <depend>libusb-1.0</depend>
 
   <test_depend>ament_lint_auto</test_depend>

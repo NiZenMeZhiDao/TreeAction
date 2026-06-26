@@ -1,7 +1,7 @@
 #pragma once
 
 #include <behaviortree_cpp/action_node.h>
-#include <action_of_motion_interfaces/action/move_to_pose.hpp>
+#include <r2_interfaces/action/move_to_pose.hpp>
 #include <r2_interfaces/action/arm_action.hpp>
 #include <r2_interfaces/action/suspension_control.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -18,10 +18,10 @@ namespace r2_bt
  * @brief 梅林区 Fetch 动作节点
  *
  * 执行模型:
- *   onStart: 完成全部计算，立即发 Align(grasp) + Suspension(如需，并行)
+ *   onStart: 完成全部计算，立即发 MoveToPose(grasp) + Suspension(如需，并行)
  *   onRunning: 检查完成 → 发 ArmAction(grasp) → 等待完成 → 更新状态
- *   - Align 与 ArmAction 串行（先到位再抓）
- *   - 悬挂并行: SuspensionControl 与 Align 同时进行
+ *   - MoveToPose 与 ArmAction 串行（先到位再抓）
+ *   - 悬挂并行: SuspensionControl 与 MoveToPose 同时进行
  *
  * 悬挂调用: 使用 rclcpp_action::Client<SuspensionControl> 异步发送 goal，
  *   参考 r2_hardware SuspensionActionServer（原 active_suspension_control 状态机）。
@@ -42,7 +42,7 @@ private:
 
   // ---- 微调 + 机械臂 Action Client ----
   enum class ActionState { IDLE, ACTIVE, DONE, FAILED };
-  void sendAlignGoal();
+  void sendMoveToPoseGoal();
   void sendArmGoal();
   bool isActionDone(const std::string& name) const;
   bool isActionActive(const std::string& name) const;
@@ -58,13 +58,13 @@ private:
   std::mutex align_mutex_;
   std::mutex arm_mutex_;
 
-  using AlignAction = action_of_motion_interfaces::action::MoveToPose;
-  using AlignGoalHandle = rclcpp_action::ClientGoalHandle<AlignAction>;
+  using MoveToPoseAction = r2_interfaces::action::MoveToPose;
+  using MoveToPoseGoalHandle = rclcpp_action::ClientGoalHandle<MoveToPoseAction>;
   using ArmActionT = r2_interfaces::action::ArmAction;
   using ArmGoalHandle = rclcpp_action::ClientGoalHandle<ArmActionT>;
 
-  rclcpp_action::Client<AlignAction>::SharedPtr align_client_;
-  std::shared_ptr<AlignGoalHandle> align_goal_handle_;
+  rclcpp_action::Client<MoveToPoseAction>::SharedPtr align_client_;
+  std::shared_ptr<MoveToPoseGoalHandle> align_goal_handle_;
   rclcpp_action::Client<ArmActionT>::SharedPtr arm_client_;
   std::shared_ptr<ArmGoalHandle> arm_goal_handle_;
   std::chrono::steady_clock::time_point align_start_time_;

@@ -4,9 +4,10 @@ r2_full.launch.py — 真实机器人全系统启动
 
 启动顺序:
   1. ares_usb (USB 桥接，下位机通信)
-  2. multi_serial_sensor (TOF 距离传感器)
-  3. r2_hardware (各 Action Server)
-  4. r2_bt (BT 决策引擎 + Groot2 监控)
+  2. ares_tool_control (/ares_tool_node/tool_action service)
+  3. multi_serial_sensor (TOF 距离传感器)
+  4. r2_hardware (各 Action Server)
+  5. r2_bt (BT 决策引擎 + Groot2 监控)
 
 启动示例:
   ros2 launch r2_bringup r2_full.launch.py                              # 默认 full_match
@@ -18,6 +19,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -54,6 +56,21 @@ def generate_launch_description():
         default_value='/transformed/pose',
         description='梅林 move 使用的 map 系 base_link 定位 PoseStamped Topic')
 
+    tool_vid_arg = DeclareLaunchArgument(
+        'tool_vid',
+        default_value='4617',
+        description='ARES tool USB VID (decimal, default 0x1209)')
+
+    tool_pid_arg = DeclareLaunchArgument(
+        'tool_pid',
+        default_value='2',
+        description='ARES tool USB PID (decimal, default 0x0002)')
+
+    tool_timeout_arg = DeclareLaunchArgument(
+        'tool_completion_timeout_ms',
+        default_value='15000',
+        description='ARES tool service completion timeout in milliseconds')
+
     return LaunchDescription([
         tree_file_arg,
         groot2_port_arg,
@@ -61,6 +78,9 @@ def generate_launch_description():
         segment_topic_arg,
         mf_action_topic_arg,
         meilin_pose_topic_arg,
+        tool_vid_arg,
+        tool_pid_arg,
+        tool_timeout_arg,
 
         # ---- 底层: USB 桥接 (下位机通信) ----
         Node(
@@ -68,6 +88,21 @@ def generate_launch_description():
             executable='usb_bridge_node',
             name='usb_bridge_node',
             output='screen',
+        ),
+
+        # ---- 底层: ARES tool service (PrepareArea 等待 /ares_tool_node/tool_action) ----
+        Node(
+            package='ares_tool_control',
+            executable='tool_node',
+            name='ares_tool_node',
+            output='screen',
+            parameters=[{
+                'vid': ParameterValue(LaunchConfiguration('tool_vid'), value_type=int),
+                'pid': ParameterValue(LaunchConfiguration('tool_pid'), value_type=int),
+                'completion_timeout_ms': ParameterValue(
+                    LaunchConfiguration('tool_completion_timeout_ms'),
+                    value_type=int),
+            }],
         ),
 
         # ---- 底层: 距离传感器 ----
@@ -78,17 +113,17 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # ---- Action Server: 底盘微调 (Motion_control_accurate) ----
+        # ---- Action Server: 底盘微调 ----
         Node(
-            package='action_of_motion',
+            package='r2_hardware',
             executable='motion_action_node',
             name='motion_action_node',
             output='screen',
             parameters=[
                 PathJoinSubstitution([
-                    FindPackageShare('action_of_motion'),
+                    FindPackageShare('r2_hardware'),
                     'config',
-                    'param.yaml',
+                    'motion_param.yaml',
                 ]),
             ],
         ),

@@ -12,12 +12,12 @@ find_package(action_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "action/Align.action"
   "action/ArmAction.action"
   "action/MoveToPose.action"
   "action/SpearAction.action"
   "action/SuspensionControl.action"
   "srv/GetActionSeq.srv"
+  "srv/ToolAction.srv"
   DEPENDENCIES geometry_msgs action_msgs std_msgs
 )
 

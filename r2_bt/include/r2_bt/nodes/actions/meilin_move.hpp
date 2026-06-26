@@ -1,7 +1,7 @@
 #pragma once
 
 #include <behaviortree_cpp/action_node.h>
-#include <action_of_motion_interfaces/action/move_to_pose.hpp>
+#include <r2_interfaces/action/move_to_pose.hpp>
 #include <r2_interfaces/action/suspension_control.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -19,8 +19,8 @@ namespace r2_bt
  * 执行模型:
  *   onStart: 完成全部计算，立即发出第一批 action（pre_align 和/或 climb 并行）
  *   onRunning: 检查当前 action 是否完成，完成则推进到下一批
- *   - Align 串行: pre_align → target_align
- *   - 悬挂并行: SuspensionControl 与 Align 同时进行
+ *   - MoveToPose 串行: pre_align → target_align
+ *   - 悬挂并行: SuspensionControl 与 MoveToPose 同时进行
  *
  * 悬挂调用: 使用 rclcpp_action::Client<SuspensionControl> 异步发送 goal，
  *   参考 r2_hardware SuspensionActionServer（原 active_suspension_control 状态机）。
@@ -42,11 +42,11 @@ private:
 
   // ---- 微调 Action Client（Motion_control_accurate /move_to_pose）----
   enum class ActionState { IDLE, ACTIVE, DONE, FAILED };
-  void sendAlignGoal(const std::string& name, double x, double y, double yaw_rad);
+  void sendMoveToPoseGoal(const std::string& name, double x, double y, double yaw_rad);
   bool isActionDone(const std::string& name) const;
   bool isActionActive(const std::string& name) const;
   bool isActionFailed(const std::string& name) const;
-  void failActiveAlignIfTimedOut(const std::string& name);
+  void failActiveMoveToPoseIfTimedOut(const std::string& name);
   bool allActionsDone() const;
   void resetActions();
 
@@ -55,11 +55,11 @@ private:
   std::string align_message_;
   std::mutex align_mutex_;
 
-  using AlignAction = action_of_motion_interfaces::action::MoveToPose;
-  using AlignGoalHandle = rclcpp_action::ClientGoalHandle<AlignAction>;
+  using MoveToPoseAction = r2_interfaces::action::MoveToPose;
+  using MoveToPoseGoalHandle = rclcpp_action::ClientGoalHandle<MoveToPoseAction>;
 
-  rclcpp_action::Client<AlignAction>::SharedPtr align_client_;
-  std::shared_ptr<AlignGoalHandle> align_goal_handle_;
+  rclcpp_action::Client<MoveToPoseAction>::SharedPtr align_client_;
+  std::shared_ptr<MoveToPoseGoalHandle> align_goal_handle_;
   std::chrono::steady_clock::time_point pre_align_start_time_;
   std::chrono::steady_clock::time_point target_align_start_time_;
 

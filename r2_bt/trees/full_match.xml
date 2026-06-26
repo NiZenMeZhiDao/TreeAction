@@ -29,56 +29,32 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- ====== 准备区：固定 4 段（不使用 Repeat / PopNextSegment / SwitchSegmentType）====== -->
+  <!-- ====== 准备区：移动到矛头准备区，等待 ares_tool service 完成 ====== -->
   <BehaviorTree ID="PrepareArea">
     <Sequence>
 
-      <Sequence name="PREPARE_01_SPEAR_PREP">
+      <Sequence name="PREPARE_01_MOVE_TO_SPEAR_AREA">
         <RetrySegment num_attempts="3">
-          <Sequence>
-            <SpearAction command="{prepare_spear_prep_spear_command}"
-                         timeout_sec="{prepare_spear_prep_timeout_sec}"
-                         message="{last_error}"/>
-            <Align target_x="{prepare_spear_prep_target_x}"
-                   target_y="{prepare_spear_prep_target_y}"
-                   target_yaw="{prepare_spear_prep_target_yaw}"
-                   max_speed="{prepare_spear_prep_max_speed}"
-                   timeout_sec="{prepare_spear_prep_timeout_sec}"
-                   error_msg="{last_error}"/>
-          </Sequence>
+          <MoveToPose target_x="{prepare_spear_prep_target_x}"
+                      target_y="{prepare_spear_prep_target_y}"
+                      target_yaw="{prepare_spear_prep_target_yaw}"
+                      max_speed="{prepare_spear_prep_max_speed}"
+                      pid_profile="{prepare_spear_prep_pid_profile}"
+                      timeout_sec="{prepare_spear_prep_timeout_sec}"
+                      error_msg="{last_error}"/>
         </RetrySegment>
       </Sequence>
 
-      <Sequence name="PREPARE_02_SPEAR_GRASP">
+      <Sequence name="PREPARE_02_WAIT_ARES_TOOL">
         <RetrySegment num_attempts="3">
-          <SpearAction command="{prepare_spear_grasp_spear_command}"
-                       timeout_sec="{prepare_spear_grasp_timeout_sec}"
-                       message="{last_error}"/>
-        </RetrySegment>
-      </Sequence>
-
-      <Sequence name="PREPARE_03_ALIGN">
-        <RetrySegment num_attempts="3">
-          <Align target_x="{prepare_align_target_x}"
-                 target_y="{prepare_align_target_y}"
-                 target_yaw="{prepare_align_target_yaw}"
-                 max_speed="{prepare_align_max_speed}"
-                 timeout_sec="{prepare_align_timeout_sec}"
-                 error_msg="{last_error}"/>
-        </RetrySegment>
-      </Sequence>
-
-      <Sequence name="PREPARE_04_DOCK">
-        <RetrySegment num_attempts="3">
-          <Sequence>
-            <SpearAction command="3"
-                         timeout_sec="{prepare_dock_timeout_sec}"
-                         message="{last_error}"/>
-            <WaitForR1Signal signal_topic="/r1_ready" timeout_sec="60.0"/>
-            <SpearAction command="4"
-                         timeout_sec="{prepare_dock_timeout_sec}"
-                         message="{last_error}"/>
-          </Sequence>
+          <AresToolAction action="{prepare_ares_tool_action}"
+                          service_name="{prepare_ares_tool_service_name}"
+                          timeout_sec="{prepare_ares_tool_timeout_sec}"
+                          arg0="{prepare_ares_tool_arg0}"
+                          arg1="{prepare_ares_tool_arg1}"
+                          arg2="{prepare_ares_tool_arg2}"
+                          arg3="{prepare_ares_tool_arg3}"
+                          message="{last_error}"/>
         </RetrySegment>
       </Sequence>
 
@@ -134,12 +110,13 @@
 
       <Sequence name="FINAL_01_MOVE2">
         <RetrySegment num_attempts="3">
-          <Align target_x="{final_move2_target_x}"
-                 target_y="{final_move2_target_y}"
-                 target_yaw="{final_move2_target_yaw}"
-                 max_speed="{final_move2_max_speed}"
-                 timeout_sec="{final_move2_timeout_sec}"
-                 error_msg="{last_error}"/>
+          <MoveToPose target_x="{final_move2_target_x}"
+                      target_y="{final_move2_target_y}"
+                      target_yaw="{final_move2_target_yaw}"
+                      max_speed="{final_move2_max_speed}"
+                      pid_profile="{final_move2_pid_profile}"
+                      timeout_sec="{final_move2_timeout_sec}"
+                      error_msg="{last_error}"/>
         </RetrySegment>
       </Sequence>
 
@@ -149,6 +126,7 @@
                       target_y="{final_final_move2_target_y}"
                       target_yaw="{final_final_move2_target_yaw}"
                       max_speed="{final_final_move2_max_speed}"
+                      pid_profile="{final_final_move2_pid_profile}"
                       timeout_sec="{final_final_move2_timeout_sec}"
                       error_msg="{last_error}"/>
         </RetrySegment>

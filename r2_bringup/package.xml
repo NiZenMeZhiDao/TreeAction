@@ -9,7 +9,7 @@
 
   <depend>r2_bt</depend>
   <depend>r2_hardware</depend>
-  <depend>action_of_motion</depend>
+  <depend>ares_tool_control</depend>
 
   <export>
     <build_type>ament_python</build_type>

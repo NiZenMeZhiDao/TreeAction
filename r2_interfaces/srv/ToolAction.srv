@@ -5,7 +5,7 @@
 string action         # connector: prepare | grasp | dock_extend
                       # arm: arm_grasp | arm_get_body | arm_place_mid | arm_place_high
                       # arm_grasp returns after grasp; storage continues automatically on MCU.
-float32[4] args       # 透传到帧的 4 个预留 float。prepare: args[0]=length(m)
+float32[4] args       # passthrough reserved floats. prepare: args[0]=length(m)
 ---
 # Response (returned when the action completes, or on error/timeout).
 bool   success        # true when the matching feedback frame was received

@@ -76,17 +76,17 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # ---- Action Server: 底盘微调 (Motion_control_accurate) ----
+        # ---- Action Server: 底盘微调 ----
         Node(
-            package='action_of_motion',
+            package='r2_hardware',
             executable='motion_action_node',
             name='motion_action_node',
             output='screen',
             parameters=[
                 PathJoinSubstitution([
-                    FindPackageShare('action_of_motion'),
+                    FindPackageShare('r2_hardware'),
                     'config',
-                    'param.yaml',
+                    'motion_param.yaml',
                 ]),
             ],
         ),

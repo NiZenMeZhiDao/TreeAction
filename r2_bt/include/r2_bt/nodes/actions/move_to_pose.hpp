@@ -1,7 +1,7 @@
 #pragma once
 
 #include <behaviortree_cpp/action_node.h>
-#include <action_of_motion_interfaces/action/move_to_pose.hpp>
+#include <r2_interfaces/action/move_to_pose.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <chrono>
@@ -22,7 +22,7 @@ public:
   void onHalted() override;
 
 private:
-  using MoveToPoseAction = action_of_motion_interfaces::action::MoveToPose;
+  using MoveToPoseAction = r2_interfaces::action::MoveToPose;
   using GoalHandle = rclcpp_action::ClientGoalHandle<MoveToPoseAction>;
 
   rclcpp_action::Client<MoveToPoseAction>::SharedPtr action_client_;

@@ -11,7 +11,6 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
-find_package(action_of_motion_interfaces REQUIRED)
 find_package(r2_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -21,7 +20,7 @@ find_package(nlohmann_json REQUIRED)
 # BT nodes library (C++)
 #------------------------------------------------------------
 add_library(r2_bt_nodes SHARED
-  src/nodes/align.cpp
+  src/nodes/ares_tool_action.cpp
   src/nodes/arm_action.cpp
   src/nodes/is_segment_type.cpp
   src/nodes/is_string_empty.cpp
@@ -50,7 +49,6 @@ ament_target_dependencies(r2_bt_nodes
   rclcpp
   rclcpp_action
   behaviortree_cpp
-  action_of_motion_interfaces
   r2_interfaces
   geometry_msgs
 )
@@ -72,7 +70,6 @@ ament_target_dependencies(r2_bt_engine
   rclcpp
   rclcpp_action
   behaviortree_cpp
-  action_of_motion_interfaces
   r2_interfaces
   geometry_msgs
   std_msgs
@@ -101,6 +98,6 @@ install(DIRECTORY include/
 
 ament_export_include_directories(include)
 ament_export_libraries(r2_bt_nodes)
-ament_export_dependencies(action_of_motion_interfaces)
+ament_export_dependencies(r2_interfaces)
 
 ament_package()

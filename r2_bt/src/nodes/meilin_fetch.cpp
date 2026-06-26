@@ -12,7 +12,7 @@ namespace r2_bt
 // 微调 + 机械臂 Action Client
 // ===========================================================================
 
-void MeilinFetch::sendAlignGoal()
+void MeilinFetch::sendMoveToPoseGoal()
 {
   {
     std::lock_guard<std::mutex> lock(align_mutex_);
@@ -36,8 +36,16 @@ void MeilinFetch::sendAlignGoal()
 
   if (!align_client_)
   {
-    align_client_ =
-        rclcpp_action::create_client<AlignAction>(node_, "move_to_pose");
+    rclcpp_action::Client<MoveToPoseAction>::SharedPtr shared_client;
+    if (config().blackboard->get("move_to_pose_client", shared_client) && shared_client)
+    {
+      align_client_ = shared_client;
+    }
+    else
+    {
+      align_client_ =
+          rclcpp_action::create_client<MoveToPoseAction>(node_, "move_to_pose");
+    }
   }
 
   if (!align_client_->action_server_is_ready())
@@ -47,14 +55,15 @@ void MeilinFetch::sendAlignGoal()
     return;
   }
 
-  auto goal = AlignAction::Goal();
+  auto goal = MoveToPoseAction::Goal();
   goal.x = grasp_x_;
   goal.y = grasp_y_;
   goal.yaw_deg = target_yaw_ * 180.0 / M_PI;
+  goal.pid_profile = MoveToPoseAction::Goal::PID_PROFILE_SLOW;
 
-  auto send_goal_options = rclcpp_action::Client<AlignAction>::SendGoalOptions();
+  auto send_goal_options = rclcpp_action::Client<MoveToPoseAction>::SendGoalOptions();
   send_goal_options.goal_response_callback =
-    [this](const std::shared_ptr<AlignGoalHandle>& goal_handle) {
+    [this](const std::shared_ptr<MoveToPoseGoalHandle>& goal_handle) {
       std::lock_guard<std::mutex> lock(align_mutex_);
       if (align_state_ != ActionState::ACTIVE)
       {
@@ -68,7 +77,7 @@ void MeilinFetch::sendAlignGoal()
       }
     };
   send_goal_options.result_callback =
-    [this](const AlignGoalHandle::WrappedResult& result) {
+    [this](const MoveToPoseGoalHandle::WrappedResult& result) {
       std::lock_guard<std::mutex> lock(align_mutex_);
       if (align_state_ != ActionState::ACTIVE)
       {
@@ -87,8 +96,8 @@ void MeilinFetch::sendAlignGoal()
   align_client_->async_send_goal(goal, send_goal_options);
 
   RCLCPP_INFO(node_->get_logger(),
-              "[MeilinFetch] >>> /move_to_pose goal(grasp): x=%.3f y=%.3f yaw=%.1f°",
-              goal.x, goal.y, goal.yaw_deg);
+              "[MeilinFetch] >>> /move_to_pose goal(grasp): x=%.3f y=%.3f yaw=%.1f° pid_profile=%u",
+              goal.x, goal.y, goal.yaw_deg, goal.pid_profile);
 }
 
 void MeilinFetch::sendArmGoal()
@@ -464,7 +473,7 @@ BT::NodeStatus MeilinFetch::onStart()
   }
 
   // =========================================================================
-  // 5. onStart 直接发出第一批 action: Align(grasp) + Suspension(并行)
+  // 5. onStart 直接发出第一批 action: MoveToPose(grasp) + Suspension(并行)
   // =========================================================================
   resetActions();
   {
@@ -534,7 +543,7 @@ BT::NodeStatus MeilinFetch::drive()
   switch (phase_)
   {
     // =======================================================================
-    // Phase::START — 并行发出 Align(grasp) + Suspension
+    // Phase::START — 并行发出 MoveToPose(grasp) + Suspension
     // =======================================================================
     case Phase::START:
     {
@@ -543,9 +552,9 @@ BT::NodeStatus MeilinFetch::drive()
       {
         const double t = cfg ? cfg->align_timeout_sec : 30.0;
         RCLCPP_INFO(node_->get_logger(),
-                    "[Fetch] >>> START Align(grasp): (%.3f,%.3f) yaw=%.1f° timeout=%.1fs",
+                    "[Fetch] >>> START MoveToPose(grasp): (%.3f,%.3f) yaw=%.1f° timeout=%.1fs",
                     grasp_x_, grasp_y_, target_yaw_ * 180.0 / M_PI, t);
-        sendAlignGoal();
+        sendMoveToPoseGoal();
       }
 
       if (suspension_mode_ != 0)
@@ -557,7 +566,7 @@ BT::NodeStatus MeilinFetch::drive()
     }
 
     // =======================================================================
-    // Phase::WAIT_PHASE1 — 等 Align 和 Suspension 都完成
+    // Phase::WAIT_PHASE1 — 等 MoveToPose 和 Suspension 都完成
     // =======================================================================
     case Phase::WAIT_PHASE1:
     {
@@ -597,7 +606,7 @@ BT::NodeStatus MeilinFetch::drive()
     [[fallthrough]];
 
     // =======================================================================
-    // Phase::START_ARM — 串行: Align 完成后才发 ArmAction（不能边动边抓）
+    // Phase::START_ARM — 串行: MoveToPose 完成后才发 ArmAction（不能边动边抓）
     // =======================================================================
     case Phase::START_ARM:
     {

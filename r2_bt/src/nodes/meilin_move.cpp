@@ -12,7 +12,7 @@ namespace r2_bt
 // 微调 Action Client（Motion_control_accurate /move_to_pose）
 // ===========================================================================
 
-void MeilinMove::sendAlignGoal(const std::string& name,
+void MeilinMove::sendMoveToPoseGoal(const std::string& name,
                                double x,
                                double y,
                                double yaw_rad)
@@ -48,8 +48,16 @@ void MeilinMove::sendAlignGoal(const std::string& name,
 
   if (!align_client_)
   {
-    align_client_ =
-        rclcpp_action::create_client<AlignAction>(node_, "move_to_pose");
+    rclcpp_action::Client<MoveToPoseAction>::SharedPtr shared_client;
+    if (config().blackboard->get("move_to_pose_client", shared_client) && shared_client)
+    {
+      align_client_ = shared_client;
+    }
+    else
+    {
+      align_client_ =
+          rclcpp_action::create_client<MoveToPoseAction>(node_, "move_to_pose");
+    }
   }
 
   if (!align_client_->action_server_is_ready())
@@ -59,14 +67,15 @@ void MeilinMove::sendAlignGoal(const std::string& name,
     return;
   }
 
-  auto goal = AlignAction::Goal();
+  auto goal = MoveToPoseAction::Goal();
   goal.x = x;
   goal.y = y;
   goal.yaw_deg = yaw_rad * 180.0 / M_PI;
+  goal.pid_profile = MoveToPoseAction::Goal::PID_PROFILE_SLOW;
 
-  auto send_goal_options = rclcpp_action::Client<AlignAction>::SendGoalOptions();
+  auto send_goal_options = rclcpp_action::Client<MoveToPoseAction>::SendGoalOptions();
   send_goal_options.goal_response_callback =
-    [this, name](const std::shared_ptr<AlignGoalHandle>& goal_handle) {
+    [this, name](const std::shared_ptr<MoveToPoseGoalHandle>& goal_handle) {
       std::lock_guard<std::mutex> lock(align_mutex_);
       auto& state = (name == "pre_align") ? pre_align_state_ : target_align_state_;
       if (state != ActionState::ACTIVE)
@@ -81,7 +90,7 @@ void MeilinMove::sendAlignGoal(const std::string& name,
       }
     };
   send_goal_options.result_callback =
-    [this, name](const AlignGoalHandle::WrappedResult& result) {
+    [this, name](const MoveToPoseGoalHandle::WrappedResult& result) {
       std::lock_guard<std::mutex> lock(align_mutex_);
       auto& state = (name == "pre_align") ? pre_align_state_ : target_align_state_;
       if (state != ActionState::ACTIVE)
@@ -101,8 +110,8 @@ void MeilinMove::sendAlignGoal(const std::string& name,
   align_client_->async_send_goal(goal, send_goal_options);
 
   RCLCPP_INFO(node_->get_logger(),
-              "[MeilinMove] >>> /move_to_pose goal(%s): x=%.3f y=%.3f yaw=%.1f°",
-              name.c_str(), goal.x, goal.y, goal.yaw_deg);
+              "[MeilinMove] >>> /move_to_pose goal(%s): x=%.3f y=%.3f yaw=%.1f° pid_profile=%u",
+              name.c_str(), goal.x, goal.y, goal.yaw_deg, goal.pid_profile);
 }
 
 bool MeilinMove::isActionDone(const std::string& name) const
@@ -126,7 +135,7 @@ bool MeilinMove::isActionFailed(const std::string& name) const
   return false;
 }
 
-void MeilinMove::failActiveAlignIfTimedOut(const std::string& name)
+void MeilinMove::failActiveMoveToPoseIfTimedOut(const std::string& name)
 {
   const auto cfg = config().blackboard->get<MeilinConfigPtr>("meilin_config");
   const double timeout_sec = cfg ? cfg->align_timeout_sec : 30.0;
@@ -544,9 +553,9 @@ BT::NodeStatus MeilinMove::drive()
       if (pre_align_needed_)
       {
         RCLCPP_INFO(node_->get_logger(),
-                    "[Move] >>> START Align(pre_align): (%.3f,%.3f) yaw=%.1f°",
+                    "[Move] >>> START MoveToPose(pre_align): (%.3f,%.3f) yaw=%.1f°",
                     pre_align_x_, pre_align_y_, pre_align_yaw_ * 180.0 / M_PI);
-        sendAlignGoal("pre_align", pre_align_x_, pre_align_y_, pre_align_yaw_);
+        sendMoveToPoseGoal("pre_align", pre_align_x_, pre_align_y_, pre_align_yaw_);
       }
 
       if (climb_needed_)
@@ -576,7 +585,7 @@ BT::NodeStatus MeilinMove::drive()
       // 检查 pre_align 是否完成（climb 不阻塞，继续并行）
       if (pre_align_needed_)
       {
-        failActiveAlignIfTimedOut("pre_align");
+        failActiveMoveToPoseIfTimedOut("pre_align");
         if (isActionActive("pre_align"))
         {
           return BT::NodeStatus::RUNNING;
@@ -614,9 +623,9 @@ BT::NodeStatus MeilinMove::drive()
       {
         const double t = cfg ? cfg->align_timeout_sec : 30.0;
         RCLCPP_INFO(node_->get_logger(),
-                    "[Move] >>> START Align(target): (%.3f,%.3f) yaw=%.1f° timeout=%.1fs",
+                    "[Move] >>> START MoveToPose(target): (%.3f,%.3f) yaw=%.1f° timeout=%.1fs",
                     target_x_, target_y_, target_yaw_ * 180.0 / M_PI, t);
-        sendAlignGoal("target_align", target_x_, target_y_, target_yaw_);
+        sendMoveToPoseGoal("target_align", target_x_, target_y_, target_yaw_);
       }
       phase2_fired_ = true;
       return BT::NodeStatus::RUNNING;
@@ -627,7 +636,7 @@ BT::NodeStatus MeilinMove::drive()
     // =======================================================================
     case Phase::WAIT_PHASE2:
     {
-      failActiveAlignIfTimedOut("target_align");
+      failActiveMoveToPoseIfTimedOut("target_align");
       if (!allActionsDone())
         return BT::NodeStatus::RUNNING;
 

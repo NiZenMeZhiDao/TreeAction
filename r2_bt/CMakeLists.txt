@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
+find_package(action_of_motion_interfaces REQUIRED)
 find_package(r2_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -49,6 +50,7 @@ ament_target_dependencies(r2_bt_nodes
   rclcpp
   rclcpp_action
   behaviortree_cpp
+  action_of_motion_interfaces
   r2_interfaces
   geometry_msgs
 )
@@ -70,6 +72,7 @@ ament_target_dependencies(r2_bt_engine
   rclcpp
   rclcpp_action
   behaviortree_cpp
+  action_of_motion_interfaces
   r2_interfaces
   geometry_msgs
   std_msgs

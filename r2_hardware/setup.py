@@ -11,7 +11,6 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
     ],
     install_requires=['setuptools'],
@@ -24,7 +23,6 @@ setup(
     entry_points={
         'console_scripts': [
             'suspension_action_server = r2_hardware.action_servers.suspension_action_server:main',
-            'motion_action_node = r2_hardware.action_servers.motion_action_server:main',
             'arm_action_server = r2_hardware.action_servers.arm_action_server:main',
             'spear_action_server = r2_hardware.action_servers.spear_action_server:main',
             'odom_simulator = r2_hardware.topic_nodes.odom_simulator:main',

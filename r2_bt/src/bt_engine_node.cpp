@@ -1,9 +1,9 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <action_of_motion_interfaces/action/move_to_pose.hpp>
 #include <behaviortree_cpp/bt_factory.h>
 #include <behaviortree_cpp/loggers/groot2_publisher.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nlohmann/json.hpp>
-#include <r2_interfaces/action/move_to_pose.hpp>
 #include <r2_interfaces/srv/get_action_seq.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -1065,7 +1065,7 @@ private:
   // 成员变量
   // =========================================================================
 
-  using MoveToPoseAction = r2_interfaces::action::MoveToPose;
+  using MoveToPoseAction = action_of_motion_interfaces::action::MoveToPose;
 
   BT::BehaviorTreeFactory factory_;
   BT::Blackboard::Ptr blackboard_;

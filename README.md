@@ -38,8 +38,9 @@ ares_usb / sensor nodes / 下位机
 | 包 | 职责 |
 |----|------|
 | `r2_bt` | BT 决策层；拉取并解析 `/mf_action_seq`，按固定树和 3 个子树调度 Action / Service，维护 Groot2 调试字段 |
-| `r2_interfaces` | 跨包接口定义：`MoveToPose`、`SuspensionControl`、`ArmAction`、`SpearAction`、`GetActionSeq`、`ToolAction` |
-| `r2_hardware` | 硬件执行层：各 Action Server 实现（底盘、悬挂、机械臂、矛头机构）及传感器驱动 |
+| `r2_interfaces` | 跨包接口定义：`SuspensionControl`、`ArmAction`、`SpearAction`、`GetActionSeq`、`ToolAction` |
+| `Motion_control_accurate` | 底盘 `/move_to_pose` Action 接口与 Motion PID Server |
+| `r2_hardware` | 硬件执行层：悬挂、机械臂、矛头机构 Action Server 及传感器驱动 |
 | `ares_tool_control` | ARES tool USB service：提供 `/ares_tool_node/tool_action`，控制 connector / spear / arm tool 动作；service 类型已合并到 `r2_interfaces/srv/ToolAction.srv` |
 | `r2_planner` | 规划层（保留旧翻译器代码，当前梅林区由 bt_engine_node 直接解析 `/mf_action_seq`） |
 | `ares_usb` | ROS 2 与下位机 USB 透传 |

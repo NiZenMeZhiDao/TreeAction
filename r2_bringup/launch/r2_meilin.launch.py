@@ -110,15 +110,15 @@ def generate_launch_description():
 
         # ---- Action Server: 底盘微调 ----
         Node(
-            package='r2_hardware',
+            package='action_of_motion',
             executable='motion_action_node',
             name='motion_action_node',
             output='screen',
             parameters=[
                 PathJoinSubstitution([
-                    FindPackageShare('r2_hardware'),
+                    FindPackageShare('action_of_motion'),
                     'config',
-                    'motion_param.yaml',
+                    'param.yaml',
                 ]),
             ],
         ),

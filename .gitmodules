@@ -10,9 +10,9 @@
 [submodule "odin_slam"]
 	path = odin_slam
 	url = https://github.com/SUSTech-Algorithm/odin_slam.git
-[submodule "nav2_simple_ws"]
-	path = nav2_simple_ws
-	url = https://github.com/gsp999/nav2_simple_ws.git
+# [submodule "nav2_simple_ws"]
+# 	path = nav2_simple_ws
+# 	url = https://github.com/gsp999/nav2_simple_ws.git
 [submodule "grabber"]
 	path = grabber
 	url = https://github.com/waliwuao/grabber.git

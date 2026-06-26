@@ -1,7 +1,7 @@
 #pragma once
 
+#include <action_of_motion_interfaces/action/move_to_pose.hpp>
 #include <behaviortree_cpp/action_node.h>
-#include <r2_interfaces/action/move_to_pose.hpp>
 #include <r2_interfaces/action/suspension_control.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -55,7 +55,7 @@ private:
   std::string align_message_;
   std::mutex align_mutex_;
 
-  using MoveToPoseAction = r2_interfaces::action::MoveToPose;
+  using MoveToPoseAction = action_of_motion_interfaces::action::MoveToPose;
   using MoveToPoseGoalHandle = rclcpp_action::ClientGoalHandle<MoveToPoseAction>;
 
   rclcpp_action::Client<MoveToPoseAction>::SharedPtr align_client_;

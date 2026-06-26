@@ -334,15 +334,15 @@ class SuspensionActionServer(Node):
         # old 1/2/3/4 -> new 4/2/1/3. Indices below are zero-based.
         if self.current_direction == Direction.FORWARD:
             self.v_wheels_idx = [0, 1, 3, 2]
-            self.v_pe_idx = [0, 1, 3, 2]
+            self.v_pe_idx = [0, 3, 1, 2]
             self.v_distances_idx = [0, 1, 5, 4]
         elif self.current_direction == Direction.LEFT:
             self.v_wheels_idx = [3, 0, 2, 1]
-            self.v_pe_idx = [1, 2, 0, 3]
+            self.v_pe_idx = [3, 2, 0, 1]
             self.v_distances_idx = [2, 3, 7, 6]
         elif self.current_direction == Direction.RIGHT:
             self.v_wheels_idx = [1, 2, 0, 3]
-            self.v_pe_idx = [3, 0, 2, 1]
+            self.v_pe_idx = [1, 0, 2, 3]
             self.v_distances_idx = [6, 7, 3, 2]
         elif self.current_direction == Direction.BACKWARD:
             self.v_wheels_idx = [3, 2, 0, 1]
@@ -455,7 +455,7 @@ class SuspensionActionServer(Node):
         elif state == State.UP_3_FRONT_DOCK:
             v0_dist = self._get_v_distance_safe(0, default=999.0)
             cond = v0_dist < 80.0
-            if self._is_stable(cond, 'up3_dist'):
+            if self._is_stable(cond, 'up3_dist',threshold=2):
                 self.current_state = State.UP_4_RETRACT_FRONT
 
         elif state == State.UP_4_RETRACT_FRONT:
@@ -467,25 +467,27 @@ class SuspensionActionServer(Node):
         elif state == State.UP_5_FRONT_LAND:
             cond = self._get_v_pe(v_0) == 1
             if self._is_stable(cond, 'up5_pe'):
-                self._set_v_wheel_height([v_0, v_1], 7.0)
-                self._set_v_wheel_height([v_2, v_3], self.target_height + 3.0)
-                cond_h = self.check_height_reached([v_2, v_3], self.target_height + 3.0)
+                self._set_v_wheel_height([v_0, v_1], 10.0)
+                self._set_v_wheel_height([v_2, v_3], self.target_height + 5.0)
+                cond_h = self.check_height_reached([v_2, v_3], self.target_height + 5.0)
                 if self._is_stable(cond_h, 'up5_height', threshold=2):
                     self.current_state = State.UP_6_SIDE_DOCK_RETRACT_REAR
 
         elif state == State.UP_6_SIDE_DOCK_RETRACT_REAR:
             cond = self._get_v_pe(v_2) == 1
-            if self._is_stable(cond, 'up6_pe', threshold=20):
-                self._set_v_wheel_height([v_2, v_3], 0.0)
-                cond_h = self.check_height_reached([v_2, v_3], 0.0)
+            up6_pe_stable = self._is_stable(cond, 'up6_pe', threshold=5)
+            cond_h = False
+            if up6_pe_stable:
+                self._set_v_wheel_height([v_2, v_3], -10.0)
+                cond_h = self.check_height_reached([v_2, v_3], -10.0)
                 if self._is_stable(cond_h, 'up6_height', threshold=2):
                     self.current_state = State.UP_7_REAR_LAND
 
         elif state == State.UP_7_REAR_LAND:
-            cond = self._get_v_pe(v_2) == 1 and self._get_v_pe(v_3) == 1
+            cond = self._get_v_pe(v_3) == 1 
             if self._is_stable(cond, 'up7_pe'):
-                self._set_v_wheel_height([v_2, v_3], 3.0)
-                cond_h = self.check_height_reached([v_2, v_3], 3.0)
+                self._set_v_wheel_height([v_2, v_3], 10.0)
+                cond_h = self.check_height_reached([v_2, v_3], 10.0)
                 if self._is_stable(cond_h, 'up7_height', threshold=2):
                     self.current_state = State.UP_8_RECOVER
 
@@ -498,6 +500,7 @@ class SuspensionActionServer(Node):
 
         # ---- 下台阶 ----
         elif state == State.DOWN_1_PREPARE:
+            
             cond_pe = self._get_v_pe(v_0) == 0
             if self._is_stable(cond_pe, 'down1_pe', threshold=2):
                 if not self._height_latched:

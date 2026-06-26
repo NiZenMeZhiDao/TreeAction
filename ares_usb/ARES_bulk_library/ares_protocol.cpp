@@ -45,7 +45,7 @@ std::string Protocol::get_current_timestamp() {
 }
 
 
-Protocol::Protocol() = default; // 构造函数
+Protocol::Protocol(uint16_t pid, uint16_t vid) : vid_(vid), pid_(pid) {}
 
 Protocol::~Protocol() { // 析构函数确保断开连接
     disconnect();
@@ -68,9 +68,9 @@ bool Protocol::connect() {
 
     // libusb_set_option(usb_ctx_, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG); // 可选：开启调试日志
 
-    dev_handle_ = libusb_open_device_with_vid_pid(usb_ctx_, VID, PID);
+    dev_handle_ = libusb_open_device_with_vid_pid(usb_ctx_, vid_, pid_);
     if (!dev_handle_) {
-        std::cerr << "Error finding/opening device VID=" << std::hex << VID << " PID=" << PID << std::dec << std::endl;
+        std::cerr << "Error finding/opening device VID=0x" << std::hex << vid_ << " PID=0x" << pid_ << std::dec << std::endl;
         libusb_exit(usb_ctx_);
         usb_ctx_ = nullptr;
         return false;
@@ -89,7 +89,7 @@ bool Protocol::connect() {
         return false;
     }
 
-    std::cout << "USB Device connected successfully." << std::endl;
+    std::cout << "USB Device PID=0x" << std::hex << pid_ << std::dec << " connected successfully." << std::endl;
     running_ = true;
     read_thread_ = std::thread(&Protocol::usb_read_loop, this); // 启动读取线程
     heartbeat_thread_ = std::thread(&Protocol::heartbeat_loop, this); // 新增：启动心跳线程
@@ -127,11 +127,15 @@ void Protocol::disconnect() {
         libusb_exit(usb_ctx_);
         usb_ctx_ = nullptr;
     }
-    std::cout << "USB Device disconnected." << std::endl;
+    std::cout << "USB Device PID=0x" << std::hex << pid_ << std::dec << " disconnected." << std::endl;
 }
 
 bool Protocol::is_connected() const {
     return dev_handle_ != nullptr && running_;
+}
+
+uint16_t Protocol::pid() const {
+    return pid_;
 }
 
 void Protocol::register_sync_callback(SyncCallback cb) {
@@ -229,7 +233,7 @@ void Protocol::on_receive_internal(const uint8_t* buf, size_t len) {
         case SYNC_FRAME_HEAD: { // 0x5A5A
             if (len >= offsetof(SyncFrame, data)) { // 至少包含头部和 data_id
                 const SyncFrame* frame = reinterpret_cast<const SyncFrame*>(buf);
-                uint16_t data_id = (frame->data_id);
+                uint16_t data_id = ntohs(frame->data_id);
                 size_t data_len = len - offsetof(SyncFrame, data);
 
                 // Sync 帧不检查 request_id，直接调用回调
@@ -409,7 +413,7 @@ reconnect_fail:
             return;
         }
 
-        dev_handle_ = libusb_open_device_with_vid_pid(usb_ctx_, VID, PID);
+        dev_handle_ = libusb_open_device_with_vid_pid(usb_ctx_, vid_, pid_);
         if (!dev_handle_) {
             goto reconnect_fail;
         }
@@ -422,7 +426,7 @@ reconnect_fail:
             goto reconnect_fail;
         }
     
-        std::cout << "USB Device connected successfully." << std::endl;
+        std::cout << "USB Device PID=0x" << std::hex << pid_ << std::dec << " connected successfully." << std::endl;
         running_ = true;
         break;
     }

@@ -72,7 +72,7 @@ def generate_launch_description():
 
     grid_origin_arg = DeclareLaunchArgument(
         'grid_origin',
-        default_value='[0.0, -1.2]',
+        default_value='[2.14, 0.49]',
         description='梅林区网格原点 [x, y] (m)')
 
     grasp_distance_arg = DeclareLaunchArgument(

@@ -12,6 +12,7 @@
 #include <cctype>
 #include <chrono>
 #include <mutex>
+#include <memory>
 
 using namespace std::chrono_literals;
 
@@ -28,18 +29,8 @@ public:
     {
         RCLCPP_INFO(this->get_logger(), "UsbPassthroughNode starting...");
 
-        // 尝试连接 USB 设备 ----------------------------------------------
-        if (!protocol_.connect()) {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect USB device, node will keep running but inactive.");
-        } else {
-            RCLCPP_INFO(this->get_logger(), "USB device connected successfully.");
-        }
-
-        // 注册协议回调 ----------------------------------------------------
-        protocol_.register_sync_callback(
-            [this](uint16_t data_id, const uint8_t *data, size_t len) {
-                handle_passthrough_rx(data_id, data, len);
-            });
+        add_board_route(0x0001, 0x01);
+        add_board_route(0x0002, 0x02);
 
         // 定时器 1: 动态发现下发 (TX) 话题 (1Hz)
         topic_discovery_timer_ = this->create_wall_timer(
@@ -54,11 +45,66 @@ public:
 
     ~UsbPassthroughNode() override
     {
-        RCLCPP_INFO(this->get_logger(), "Disconnecting USB device...");
-        protocol_.disconnect();
+        RCLCPP_INFO(this->get_logger(), "Disconnecting USB devices...");
+        for (auto& board : boards_) {
+            board->protocol.disconnect();
+        }
     }
 
 private:
+    struct BoardRoute
+    {
+        BoardRoute(uint16_t usb_pid, uint8_t data_id_prefix)
+            : pid(usb_pid), prefix(data_id_prefix), protocol(usb_pid)
+        {
+        }
+
+        uint16_t pid;
+        uint8_t prefix;
+        ares::Protocol protocol;
+    };
+
+    static uint8_t data_id_prefix(uint16_t data_id)
+    {
+        return static_cast<uint8_t>((data_id >> 8) & 0xFF);
+    }
+
+    void add_board_route(uint16_t pid, uint8_t prefix)
+    {
+        auto board = std::make_unique<BoardRoute>(pid, prefix);
+        BoardRoute *board_ptr = board.get();
+
+        board_ptr->protocol.register_sync_callback(
+            [this, board_ptr](uint16_t data_id, const uint8_t *data, size_t len) {
+                handle_passthrough_rx(board_ptr, data_id, data, len);
+            });
+
+        if (!board_ptr->protocol.connect()) {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Failed to connect USB device PID=0x%04X for DataID prefix 0x%02X, node will keep running but this route is inactive.",
+                pid, prefix);
+        } else {
+            RCLCPP_INFO(
+                this->get_logger(),
+                "USB route ready: PID=0x%04X <--> DataID 0x%02Xxx.",
+                pid, prefix);
+        }
+
+        boards_.push_back(std::move(board));
+    }
+
+    BoardRoute *find_board_for_data_id(uint16_t data_id)
+    {
+        uint8_t prefix = data_id_prefix(data_id);
+        for (auto& board : boards_) {
+            if (board->prefix == prefix) {
+                return board.get();
+            }
+        }
+        return nullptr;
+    }
+
     // ---------------- 动态透传功能 (ROS2 -> 下位机 TX) ------------------------
     void discover_passthrough_topics()
     {
@@ -91,7 +137,6 @@ private:
                 if (passthrough_subs_.find(clean_name) == passthrough_subs_.end())
                 {
                     uint16_t data_id = static_cast<uint16_t>(std::stoul(hex_str, nullptr, 16));
-                    data_id = (data_id >> 8) | (data_id << 8);
                     auto sub = this->create_subscription<std_msgs::msg::Float32MultiArray>(
                         topic_name, 10,
                         [this, data_id, topic_name](const std_msgs::msg::Float32MultiArray::SharedPtr msg) {
@@ -99,7 +144,7 @@ private:
                         });
                     
                     passthrough_subs_[clean_name] = sub;
-                    RCLCPP_INFO(this->get_logger(), "🔗 [TX Channel] ROS Topic: '%s' ---> USB ID: 0x%04X", topic_name.c_str(), data_id);
+                    RCLCPP_INFO(this->get_logger(), "🔗 [TX Channel] ROS Topic: '%s' ---> DataID: 0x%04X", topic_name.c_str(), data_id);
                 }
             }
         }
@@ -111,9 +156,20 @@ private:
         if (float_count == 0) return;
 
         size_t byte_len = float_count * 4;
+        BoardRoute *board = find_board_for_data_id(id);
+        if (!board) {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "No USB route for DataID 0x%04X from topic '%s'. Drop passthrough data.",
+                id, topic_name.c_str());
+            return;
+        }
 
         if (tx_known_lengths_.find(id) == tx_known_lengths_.end() || tx_known_lengths_[id] != byte_len) {
-            RCLCPP_INFO(this->get_logger(), "✅ [TX Data] Topic: '%s' ---> ID: 0x%04X | %zu Bytes", topic_name.c_str(), id, byte_len);
+            RCLCPP_INFO(
+                this->get_logger(),
+                "✅ [TX Data] Topic: '%s' ---> PID=0x%04X DataID=0x%04X | %zu Bytes",
+                topic_name.c_str(), board->pid, id, byte_len);
             tx_known_lengths_[id] = byte_len; 
         }
 
@@ -127,9 +183,9 @@ private:
             payload[i * 4 + 3] = float_bytes[3];
         }
 
-        if (!protocol_.send_sync(id, payload.data(), payload.size()))
+        if (!board->protocol.send_sync(id, payload.data(), payload.size()))
         {
-            RCLCPP_ERROR(this->get_logger(), "Failed to TX passthrough data. ID: 0x%04X", id);
+            RCLCPP_ERROR(this->get_logger(), "Failed to TX passthrough data. PID=0x%04X DataID=0x%04X", board->pid, id);
         }
     }
 
@@ -137,9 +193,16 @@ private:
     /**
      * @brief USB 接收回调。只做数据转换和发布，绝对不执行阻塞操作 (完美复刻 UsbBridgeNode 逻辑)
      */
-    void handle_passthrough_rx(uint16_t data_id, const uint8_t *data, size_t len)
+    void handle_passthrough_rx(BoardRoute *board, uint16_t data_id, const uint8_t *data, size_t len)
     {
         if (len % 4 != 0) return;
+        if (data_id_prefix(data_id) != board->prefix) {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Drop RX passthrough data from PID=0x%04X: DataID 0x%04X does not match prefix 0x%02X.",
+                board->pid, data_id, board->prefix);
+            return;
+        }
 
         rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub = nullptr;
         
@@ -210,7 +273,7 @@ private:
     }
 
     // ---------------- 成员变量 ------------------------------------------
-    ares::Protocol protocol_{};
+    std::vector<std::unique_ptr<BoardRoute>> boards_;
 
     rclcpp::TimerBase::SharedPtr topic_discovery_timer_; 
     rclcpp::TimerBase::SharedPtr pub_creation_timer_; 

@@ -545,6 +545,8 @@ ros2 launch r2_bt bt_engine.launch.py
 
 `ares_usb` 将 ROS 2 topic 与下位机 DataID 做透传映射：
 
+多开发板按 USB PID 与 DataID 高字节分流，不广播到所有开发板：PID `0x0001` 只处理 `0x01xx`，PID `0x0002` 只处理 `0x02xx`。
+
 | Topic / DataID | 方向 | 说明 |
 |----------------|------|------|
 | `/t0x0101` | ROS → 下位机 | 底盘运动指令 `[vx, vy, vyaw]` |

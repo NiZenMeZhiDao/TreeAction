@@ -646,6 +646,12 @@ private:
           !parse_int(data[off + 2], "col", col))
         return {};
 
+      RCLCPP_INFO(get_logger(),
+                  "Meilin grid→world: (%d,%d) → (%.2f, %.2f)",
+                  row, col,
+                  meilin_origin_x_ + row * meilin_grid_size_,
+                  meilin_origin_y_ + col * meilin_grid_size_);
+
       const double arg3 = data[off + 3];
       const double yaw = r2_bt::meilin_normalize_angle(data[off + 4]);
       if (!std::isfinite(arg3) || !std::isfinite(data[off + 4]))
@@ -1079,8 +1085,8 @@ private:
   double meilin_initial_height_ = 0.0;
   double meilin_initial_yaw_ = 0.0;
   double meilin_grid_size_ = 1.2;
-  double meilin_origin_x_ = 1.2;
-  double meilin_origin_y_ = 1.2;
+  double meilin_origin_x_ = 0;
+  double meilin_origin_y_ = -1.2;
   double meilin_grasp_distance_ = 0.4;
   double meilin_yaw_tolerance_ = 0.12;
   double meilin_height_tolerance_ = 1.0;

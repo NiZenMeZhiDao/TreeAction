@@ -469,6 +469,13 @@ SyncFrame (0x5A5A):
 
 `usb_bridge_node` 在 1Hz 定时器上动态扫描所有以 `t0x` 开头的 topic，自动创建订阅并转发为 SyncFrame。这意味着硬件层只需以 `t0x<hex>` 命名发布 topic，USB bridge 即可自动透传，无需修改 bridge 代码。
 
+多开发板场景下，`usb_bridge_node` 按 USB PID 与 DataID 高字节分流，不再向所有开发板广播：
+
+| USB PID | DataID 范围 | 说明 |
+|---------|-------------|------|
+| `0x0001` | `0x01xx` | 只透传 01 开头的 DataID |
+| `0x0002` | `0x02xx` | 只透传 02 开头的 DataID |
+
 ### 5.3 传感器数据流
 
 ```

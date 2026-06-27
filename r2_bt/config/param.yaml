@@ -1,14 +1,14 @@
 prepare_area:
   points:
     spear_pickup:
-      x: 0.50
-      y: 0.20
-      yaw: 0.00
+      x: 2.29
+      y: -0.68
+      yaw: 94.5
       frame_id: "map"
     dock_standby:
-      x: 0.80
-      y: 0.20
-      yaw: 0.00
+      x: -0.15
+      y: 0.76
+      yaw: -178.6
       frame_id: "map"
 
   motion:

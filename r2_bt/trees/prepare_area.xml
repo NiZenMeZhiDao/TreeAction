@@ -2,7 +2,7 @@
 <!--
   prepare_area.xml — 准备区局部执行树
 
-  移动到矛头抓取点并抓取，然后并行移动到对接待定区并执行 dock_extend。
+  移动到矛头抓取点，调用 /pick_action 完成夹取，然后并行移动到对接待定区并执行 dock_extend。
   固定参数来自 param_config 的 prepare_area.* 字段。
 -->
 <root BTCPP_format="4" main_tree_to_execute="PrepareArea">
@@ -22,15 +22,11 @@
       </Sequence>
 
       <Sequence name="PREPARE_02_GRASP_SPEAR">
-        <RetrySegment num_attempts="{prepare_spear_tool_retry_attempts}">
-          <AresToolAction action="{prepare_spear_tool_grasp_action}"
-                          service_name="{prepare_spear_tool_service_name}"
-                          timeout_sec="{prepare_spear_tool_grasp_timeout_sec}"
-                          arg0="{prepare_spear_tool_arg0}"
-                          arg1="{prepare_spear_tool_arg1}"
-                          arg2="{prepare_spear_tool_arg2}"
-                          arg3="{prepare_spear_tool_arg3}"
-                          message="{last_error}"/>
+        <RetrySegment num_attempts="{prepare_pick_action_retry_attempts}">
+          <PickAction server_name="{prepare_pick_action_server_name}"
+                      expected_count="{prepare_pick_action_expected_count}"
+                      timeout_sec="{prepare_pick_action_timeout_sec}"
+                      message="{last_error}"/>
         </RetrySegment>
       </Sequence>
 

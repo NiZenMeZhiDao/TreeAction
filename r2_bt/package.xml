@@ -14,7 +14,9 @@
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
   <depend>behaviortree_cpp</depend>
+  <depend>ares_tool_interfaces</depend>
   <depend>action_of_motion_interfaces</depend>
+  <depend>pick_action_interfaces</depend>
   <depend>r2_interfaces</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>

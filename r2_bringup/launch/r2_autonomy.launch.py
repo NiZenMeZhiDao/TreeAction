@@ -90,6 +90,16 @@ def generate_launch_description():
         default_value='15000',
         description='ARES tool service completion timeout in milliseconds')
 
+    pick_use_synthetic_arg = DeclareLaunchArgument(
+        'pick_use_synthetic',
+        default_value='true',
+        description='Use synthetic LiDAR scan for pick_action testing')
+
+    pick_lidar_port_arg = DeclareLaunchArgument(
+        'pick_lidar_port',
+        default_value='/dev/ttyUSB0',
+        description='STL-27L serial device used by pick_action when synthetic mode is false')
+
     full_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'), "' == 'full'"
     ])
@@ -125,6 +135,19 @@ def generate_launch_description():
                 LaunchConfiguration('tool_completion_timeout_ms'),
                 value_type=int),
         }],
+    )
+
+    pick_action_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('pick_action'),
+            'launch',
+            'pick_action.launch.py',
+        ])),
+        launch_arguments={
+            'port_name': LaunchConfiguration('pick_lidar_port'),
+            'use_synthetic': LaunchConfiguration('pick_use_synthetic'),
+        }.items(),
+        condition=IfCondition(full_profile),
     )
 
     multi_serial_node = Node(
@@ -205,6 +228,8 @@ def generate_launch_description():
         tool_vid_arg,
         tool_pid_arg,
         tool_timeout_arg,
+        pick_use_synthetic_arg,
+        pick_lidar_port_arg,
 
         LogInfo(msg='=== R2 autonomy bringup: localization ==='),
         odin_launch,
@@ -212,6 +237,8 @@ def generate_launch_description():
         usb_bridge_node,
         tool_node,
         multi_serial_node,
+        LogInfo(msg='=== R2 autonomy bringup: pick_action pipeline ==='),
+        pick_action_launch,
         LogInfo(msg='=== R2 autonomy bringup: action servers ==='),
         motion_action_node,
         suspension_action_server,

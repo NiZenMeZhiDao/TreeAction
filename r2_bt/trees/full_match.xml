@@ -29,7 +29,7 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- ====== 准备区：抓矛头，然后并行移动到对接待定区与 dock_extend ====== -->
+  <!-- ====== 准备区：调用 /pick_action 夹取矛头，然后并行移动到对接待定区与 dock_extend ====== -->
   <BehaviorTree ID="PrepareArea">
     <Sequence>
 
@@ -46,15 +46,11 @@
       </Sequence>
 
       <Sequence name="PREPARE_02_GRASP_SPEAR">
-        <RetrySegment num_attempts="{prepare_spear_tool_retry_attempts}">
-          <AresToolAction action="{prepare_spear_tool_grasp_action}"
-                          service_name="{prepare_spear_tool_service_name}"
-                          timeout_sec="{prepare_spear_tool_grasp_timeout_sec}"
-                          arg0="{prepare_spear_tool_arg0}"
-                          arg1="{prepare_spear_tool_arg1}"
-                          arg2="{prepare_spear_tool_arg2}"
-                          arg3="{prepare_spear_tool_arg3}"
-                          message="{last_error}"/>
+        <RetrySegment num_attempts="{prepare_pick_action_retry_attempts}">
+          <PickAction server_name="{prepare_pick_action_server_name}"
+                      expected_count="{prepare_pick_action_expected_count}"
+                      timeout_sec="{prepare_pick_action_timeout_sec}"
+                      message="{last_error}"/>
         </RetrySegment>
       </Sequence>
 

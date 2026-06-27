@@ -11,7 +11,9 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
+find_package(ares_tool_interfaces REQUIRED)
 find_package(action_of_motion_interfaces REQUIRED)
+find_package(pick_action_interfaces REQUIRED)
 find_package(r2_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -37,6 +39,7 @@ add_library(r2_bt_nodes SHARED
   src/nodes/for_each_segment.cpp
   src/nodes/go_to_pose.cpp
   src/nodes/place_object_placeholder.cpp
+  src/nodes/pick_action.cpp
   src/nodes/select_final_target.cpp
   src/nodes/suspension_control.cpp
   src/nodes/wait_arm_idle.cpp
@@ -54,7 +57,9 @@ ament_target_dependencies(r2_bt_nodes
   rclcpp
   rclcpp_action
   behaviortree_cpp
+  ares_tool_interfaces
   action_of_motion_interfaces
+  pick_action_interfaces
   r2_interfaces
   geometry_msgs
   std_msgs
@@ -77,7 +82,9 @@ ament_target_dependencies(r2_bt_engine
   rclcpp
   rclcpp_action
   behaviortree_cpp
+  ares_tool_interfaces
   action_of_motion_interfaces
+  pick_action_interfaces
   r2_interfaces
   geometry_msgs
   std_msgs
@@ -107,6 +114,6 @@ install(DIRECTORY include/
 
 ament_export_include_directories(include)
 ament_export_libraries(r2_bt_nodes)
-ament_export_dependencies(r2_interfaces)
+ament_export_dependencies(ares_tool_interfaces pick_action_interfaces r2_interfaces)
 
 ament_package()

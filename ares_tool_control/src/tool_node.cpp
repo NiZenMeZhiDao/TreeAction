@@ -18,8 +18,12 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
+<<<<<<< Updated upstream
 #include "r2_interfaces/srv/tool_action.hpp"
 #include "r2_interfaces/action/suspension_control.hpp"
+=======
+#include "ares_tool_interfaces/srv/tool_action.hpp"
+>>>>>>> Stashed changes
 
 #include "ares_tool_control/ares_usb.hpp"
 
@@ -67,8 +71,12 @@ std::string valid_actions()
 
 }  // namespace
 
+<<<<<<< Updated upstream
 using r2_interfaces::srv::ToolAction;
 using r2_interfaces::action::SuspensionControl;
+=======
+using ares_tool_interfaces::srv::ToolAction;
+>>>>>>> Stashed changes
 
 class AresToolNode : public rclcpp::Node {
       public:

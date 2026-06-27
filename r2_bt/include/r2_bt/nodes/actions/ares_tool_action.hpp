@@ -1,7 +1,7 @@
 #pragma once
 
+#include <ares_tool_interfaces/srv/tool_action.hpp>
 #include <behaviortree_cpp/action_node.h>
-#include <r2_interfaces/srv/tool_action.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include <array>
@@ -24,7 +24,7 @@ public:
   void onHalted() override;
 
 private:
-  using ServiceT = r2_interfaces::srv::ToolAction;
+  using ServiceT = ares_tool_interfaces::srv::ToolAction;
 
   rclcpp::Client<ServiceT>::SharedPtr client_;
   rclcpp::Node::SharedPtr node_;

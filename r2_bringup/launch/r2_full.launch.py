@@ -12,7 +12,7 @@ r2_full.launch.py — 真实机器人全系统启动
 启动示例:
   ros2 launch r2_bringup r2_full.launch.py                              # 默认 full_match
   ros2 launch r2_bringup r2_full.launch.py tree_file:=meilin_stage.xml   # 美林赛段
-  ros2 launch r2_bringup r2_full.launch.py tree_file:=full_match.xml groot2_port:=1668
+  ros2 launch r2_bringup r2_full.launch.py param_config:=config/param.yaml tree_file:=full_match.xml groot2_port:=1668
 """
 
 from launch import LaunchDescription
@@ -56,6 +56,12 @@ def generate_launch_description():
         default_value='/transformed/pose',
         description='梅林 move 使用的 map 系 base_link 定位 PoseStamped Topic')
 
+    param_config_arg = DeclareLaunchArgument(
+        'param_config',
+        default_value='config/param.yaml',
+        description='参数 YAML 文件 (位于 r2_bt/config/ 目录下): '
+                    'config/param.yaml。目前用于 PrepareArea。')
+
     tool_vid_arg = DeclareLaunchArgument(
         'tool_vid',
         default_value='4617',
@@ -78,6 +84,7 @@ def generate_launch_description():
         segment_topic_arg,
         mf_action_topic_arg,
         meilin_pose_topic_arg,
+        param_config_arg,
         tool_vid_arg,
         tool_pid_arg,
         tool_timeout_arg,
@@ -160,6 +167,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'tree_file': LaunchConfiguration('tree_file'),
+                'param_config': LaunchConfiguration('param_config'),
                 'groot2_port': LaunchConfiguration('groot2_port'),
                 'tick_frequency': LaunchConfiguration('tick_frequency'),
                 'segment_topic': LaunchConfiguration('segment_topic'),

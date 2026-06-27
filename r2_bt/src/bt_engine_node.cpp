@@ -14,6 +14,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <array>
 #include <chrono>
@@ -66,6 +67,7 @@ public:
     declare_parameter("buffer_service", "/get_action_seq");
     declare_parameter("tree_file", "full_match.xml");
     declare_parameter("match_config", "");
+    declare_parameter("param_config", "config/param.yaml");
     declare_parameter("autostart", false);
     declare_parameter("default_region", "full");
     declare_parameter("require_map_relocalization", true);
@@ -96,6 +98,7 @@ public:
     buffer_service_ = get_parameter("buffer_service").as_string();
     tree_file_ = get_parameter("tree_file").as_string();
     match_config_ = get_parameter("match_config").as_string();
+    param_config_ = get_parameter("param_config").as_string();
     autostart_ = get_parameter("autostart").as_bool();
     requested_region_ = normalize_region(get_parameter("default_region").as_string());
     if (requested_region_.empty())
@@ -201,7 +204,7 @@ public:
     blackboard_->set("meilin_pose_yaw", 0.0);
     blackboard_->set("meilin_pose_last_update_sec", 0.0);
 
-    // 加载比赛配置（PrepareArea/FinalArea 的固定参数）
+    // 加载固定参数：旧 JSON 暂保留给 FinalArea，PrepareArea 从 YAML 读取。
     if (!match_config_.empty())
     {
       load_match_config();
@@ -209,9 +212,10 @@ public:
     else
     {
       RCLCPP_WARN(get_logger(),
-                  "No match_config provided. PrepareArea and FinalArea use named "
-                  "blackboard variables — ensure they are set before tick.");
+                  "No match_config provided. FinalArea uses named blackboard "
+                  "variables — ensure they are set before tick.");
     }
+    load_param_config();
 
     // === 暂存区 Service Client（替代直接订阅 /mf_action_seq） ===
     buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
@@ -238,7 +242,7 @@ public:
             "spear_action");
 
     tool_service_name_ = "/ares_tool_node/tool_action";
-    (void)blackboard_->get("prepare_ares_tool_service_name", tool_service_name_);
+    (void)blackboard_->get("prepare_spear_tool_service_name", tool_service_name_);
     tool_client_ = create_client<r2_interfaces::srv::ToolAction>(tool_service_name_);
     start_service_ = create_service<r2_interfaces::srv::StartAutonomy>(
         "/bt_engine/start_autonomy",
@@ -283,10 +287,11 @@ public:
     RCLCPP_INFO(get_logger(),
                 "BT Engine started: tick=%.1fHz, groot2_port=%u, segment_topic=%s, "
                 "buffer_service=%s, meilin_pose_topic=%s, tree_file=%s, match_config=%s, "
-                "autostart=%s, default_region=%s",
+                "param_config=%s, autostart=%s, default_region=%s",
                 tick_freq, groot2_port_, segment_topic_.c_str(),
                 buffer_service_.c_str(), meilin_pose_topic_.c_str(), tree_file_.c_str(),
                 match_config_.empty() ? "(none)" : match_config_.c_str(),
+                param_config_.empty() ? "(none)" : param_config_.c_str(),
                 autostart_ ? "true" : "false", requested_region_.c_str());
   }
 
@@ -348,12 +353,14 @@ private:
   {
     std::vector<std::string> missing;
 
-    const bool needs_match_config =
-        region == "full" || region == "prepare" || region == "final";
+    const bool needs_prepare_config = region == "full" || region == "prepare";
+    const bool needs_match_config = region == "final";
     const bool needs_meilin_plan = region == "full" || region == "meilin";
     const bool needs_meilin_actions = region == "full" || region == "meilin";
     const bool needs_tool = region == "full" || region == "prepare";
 
+    add_missing_if(needs_prepare_config && !prepare_config_loaded_,
+                   "param_config.prepare_area", missing);
     add_missing_if(needs_match_config && match_config_.empty(),
                    "match_config", missing);
     add_missing_if(needs_meilin_plan && !meilin_plan_ready(),
@@ -521,15 +528,6 @@ private:
   // 字符串命令 → uint8 常量映射
   // =========================================================================
 
-  static uint8_t parse_spear_command_str(const std::string& value)
-  {
-    if (value == "prep" || value == "prepare") return 1;
-    if (value == "grasp") return 2;
-    if (value == "dock_extend") return 3;
-    if (value == "dock_release") return 4;
-    return 0;
-  }
-
   static uint8_t parse_arm_command_str(const std::string& value)
   {
     if (value == "grasp") return 1;
@@ -591,12 +589,133 @@ private:
   }
 
   // =========================================================================
-  // 比赛配置加载（PrepareArea / FinalArea 固定参数）
+  // 固定参数加载（PrepareArea YAML / FinalArea JSON）
   // =========================================================================
+
+  void load_param_config()
+  {
+    prepare_config_loaded_ = false;
+    if (param_config_.empty())
+    {
+      RCLCPP_WARN(get_logger(), "No param_config provided. PrepareArea params not loaded.");
+      return;
+    }
+
+    const std::string config_path = resolve_config_file(param_config_);
+    RCLCPP_INFO(get_logger(), "Loading param config: %s", config_path.c_str());
+
+    YAML::Node cfg;
+    try
+    {
+      cfg = YAML::LoadFile(config_path);
+    }
+    catch (const std::exception& e)
+    {
+      RCLCPP_ERROR(get_logger(), "Failed to parse param config YAML: %s", e.what());
+      blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+      blackboard_->set("last_error",
+                       std::string{"Failed to parse param config YAML: "} + e.what());
+      return;
+    }
+
+    const auto prepare = cfg["prepare_area"];
+    if (!prepare)
+    {
+      RCLCPP_ERROR(get_logger(), "Param config missing required field: prepare_area.");
+      blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+      blackboard_->set("last_error",
+                       std::string{"Missing required config field: prepare_area"});
+      return;
+    }
+
+    const auto points = prepare["points"];
+    const auto spear_pickup = points ? points["spear_pickup"] : YAML::Node{};
+    const auto dock_standby = points ? points["dock_standby"] : YAML::Node{};
+    const auto motion = prepare["motion"];
+    const auto spear_tool = prepare["spear_tool"];
+    if (!spear_pickup || !dock_standby || !motion || !spear_tool)
+    {
+      RCLCPP_ERROR(get_logger(),
+                   "Param config missing one of: prepare_area.points.spear_pickup, "
+                   "prepare_area.points.dock_standby, prepare_area.motion, "
+                   "prepare_area.spear_tool.");
+      blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+      blackboard_->set("last_error",
+                       std::string{"Missing required prepare_area config section"});
+      return;
+    }
+
+    load_prepare_point("prepare_spear_pickup_", spear_pickup);
+    load_prepare_point("prepare_dock_standby_", dock_standby);
+
+    blackboard_->set("prepare_motion_pid_profile",
+                     yaml_value<int>(motion, "pid_profile", 1));
+    blackboard_->set("prepare_motion_timeout_sec",
+                     yaml_value<double>(motion, "timeout_sec", 10.0));
+    blackboard_->set("prepare_motion_retry_attempts",
+                     yaml_value<int>(motion, "retry_attempts", 3));
+
+    blackboard_->set("prepare_spear_tool_service_name",
+                     yaml_value<std::string>(
+                         spear_tool, "service_name", "/ares_tool_node/tool_action"));
+    blackboard_->set("prepare_spear_tool_grasp_action",
+                     yaml_value<std::string>(spear_tool, "grasp_action", "grasp"));
+    blackboard_->set("prepare_spear_tool_grasp_timeout_sec",
+                     yaml_value<double>(spear_tool, "grasp_timeout_sec", 20.0));
+    blackboard_->set("prepare_spear_tool_dock_extend_action",
+                     yaml_value<std::string>(
+                         spear_tool, "dock_extend_action", "dock_extend"));
+    blackboard_->set("prepare_spear_tool_dock_extend_timeout_sec",
+                     yaml_value<double>(spear_tool, "dock_extend_timeout_sec", 60.0));
+    blackboard_->set("prepare_spear_tool_retry_attempts",
+                     yaml_value<int>(spear_tool, "retry_attempts", 3));
+
+    std::array<double, 4> args{0.0, 0.0, 0.0, 0.0};
+    const auto args_node = spear_tool["args"];
+    if (args_node && args_node.IsSequence())
+    {
+      for (std::size_t i = 0; i < args.size() && i < args_node.size(); ++i)
+      {
+        args[i] = args_node[i].as<double>();
+      }
+    }
+    blackboard_->set("prepare_spear_tool_arg0", args[0]);
+    blackboard_->set("prepare_spear_tool_arg1", args[1]);
+    blackboard_->set("prepare_spear_tool_arg2", args[2]);
+    blackboard_->set("prepare_spear_tool_arg3", args[3]);
+
+    prepare_config_loaded_ = true;
+    blackboard_->set("execution_state", std::string{"CONFIG_LOADED"});
+    RCLCPP_INFO(get_logger(),
+                "PrepareArea params loaded: spear pickup -> grasp -> "
+                "parallel(dock standby, dock_extend)");
+  }
+
+  void load_prepare_point(const std::string& prefix, const YAML::Node& node)
+  {
+    blackboard_->set(prefix + "target_x", yaml_value<double>(node, "x", 0.0));
+    blackboard_->set(prefix + "target_y", yaml_value<double>(node, "y", 0.0));
+    blackboard_->set(prefix + "target_yaw", yaml_value<double>(node, "yaw", 0.0));
+    blackboard_->set(prefix + "frame_id",
+                     yaml_value<std::string>(node, "frame_id", "map"));
+  }
+
+  template <typename T>
+  static T yaml_value(const YAML::Node& node,
+                      const std::string& key,
+                      const T& fallback)
+  {
+    const auto child = node[key];
+    if (!child)
+    {
+      return fallback;
+    }
+    return child.as<T>();
+  }
 
   void load_match_config()
   {
-    std::string config_path = resolve_config_file();
+    std::string config_path = resolve_config_file(match_config_);
     RCLCPP_INFO(get_logger(), "Loading match config: %s", config_path.c_str());
 
     std::ifstream ifs(config_path);
@@ -615,7 +734,6 @@ private:
     }
 
     const std::vector<std::string> required_sections = {
-      "prepare.spear_prep", "prepare.ares_tool",
       "final.standby",
       "final.targets.2_left", "final.targets.2_mid", "final.targets.2_right",
       "final.targets.3_left", "final.targets.3_mid", "final.targets.3_right"
@@ -644,39 +762,6 @@ private:
       }
     }
     RCLCPP_INFO(get_logger(), "Match side: %s", match_side.c_str());
-
-    // PrepareArea 参数
-    {
-      const auto& p = cfg["prepare"];
-      const auto& spear_prep = p["spear_prep"];
-      blackboard_->set("prepare_spear_prep_spear_command",
-                       parse_spear_command_str(spear_prep.value("spear_command", "prep")));
-      blackboard_->set("prepare_spear_prep_target_x", spear_prep.value("target_x", 0.0));
-      blackboard_->set("prepare_spear_prep_target_y", spear_prep.value("target_y", 0.0));
-      blackboard_->set("prepare_spear_prep_target_yaw", spear_prep.value("target_yaw", 0.0));
-      blackboard_->set("prepare_spear_prep_max_speed", spear_prep.value("max_speed", 0.5));
-      blackboard_->set("prepare_spear_prep_pid_profile", spear_prep.value("pid_profile", 1));
-      blackboard_->set("prepare_spear_prep_timeout_sec", spear_prep.value("timeout_sec", 30.0));
-
-      const auto& ares_tool = p["ares_tool"];
-      blackboard_->set("prepare_ares_tool_action",
-                       ares_tool.value("action", "grasp"));
-      blackboard_->set("prepare_ares_tool_service_name",
-                       ares_tool.value("service_name", "/ares_tool_node/tool_action"));
-      blackboard_->set("prepare_ares_tool_timeout_sec",
-                       ares_tool.value("timeout_sec", 30.0));
-      blackboard_->set("prepare_ares_tool_arg0", ares_tool.value("arg0", 0.0));
-      blackboard_->set("prepare_ares_tool_arg1", ares_tool.value("arg1", 0.0));
-      blackboard_->set("prepare_ares_tool_arg2", ares_tool.value("arg2", 0.0));
-      blackboard_->set("prepare_ares_tool_arg3", ares_tool.value("arg3", 0.0));
-      blackboard_->set("prepare_deck_topic",
-                       p.value("deck_topic", std::string{"/aruco_comm/tx_id"}));
-      blackboard_->set("prepare_build_signal", p.value("build_signal", 8));
-      blackboard_->set("prepare_build_timeout_sec",
-                       p.value("build_timeout_sec", 0.0));
-      RCLCPP_INFO(get_logger(),
-                  "PrepareArea params loaded: move + deck trigger + ares_tool service");
-    }
 
     // FinalArea 参数
     {
@@ -740,14 +825,14 @@ private:
     return current->is_object() && current->contains(segment);
   }
 
-  std::string resolve_config_file() const
+  std::string resolve_config_file(const std::string& config) const
   {
-    if (!match_config_.empty() && match_config_.front() == '/')
-      return match_config_;
+    if (!config.empty() && config.front() == '/')
+      return config;
     auto share_dir = ament_index_cpp::get_package_share_directory("r2_bt");
-    if (match_config_.find("config/") == 0)
-      return share_dir + "/" + match_config_;
-    return share_dir + "/config/" + match_config_;
+    if (config.find("config/") == 0)
+      return share_dir + "/" + config;
+    return share_dir + "/config/" + config;
   }
 
   // =========================================================================
@@ -1418,8 +1503,10 @@ private:
   std::string meilin_pose_topic_;
   std::string tree_file_;
   std::string match_config_;
+  std::string param_config_;
   bool autostart_ = false;
   bool autonomy_enabled_ = false;
+  bool prepare_config_loaded_ = false;
   bool require_map_relocalization_ = true;
   std::string requested_region_ = "full";
   std::string active_region_ = "idle";

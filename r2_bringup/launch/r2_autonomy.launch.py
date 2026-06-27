@@ -30,6 +30,11 @@ def generate_launch_description():
         default_value='',
         description='Match config under r2_bt/config, for example config/match_blue.json')
 
+    param_config_arg = DeclareLaunchArgument(
+        'param_config',
+        default_value='config/param.yaml',
+        description='Parameter YAML under r2_bt/config. Currently used by PrepareArea')
+
     default_region_arg = DeclareLaunchArgument(
         'default_region',
         default_value='full',
@@ -180,6 +185,7 @@ def generate_launch_description():
         parameters=[{
             'tree_file': 'full_match.xml',
             'match_config': LaunchConfiguration('match_config'),
+            'param_config': LaunchConfiguration('param_config'),
             'groot2_port': ParameterValue(
                 LaunchConfiguration('groot2_port'), value_type=int),
             'tick_frequency': ParameterValue(
@@ -201,6 +207,7 @@ def generate_launch_description():
     return LaunchDescription([
         startup_profile_arg,
         match_config_arg,
+        param_config_arg,
         default_region_arg,
         autostart_arg,
         launch_rviz_arg,

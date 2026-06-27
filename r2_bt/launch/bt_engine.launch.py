@@ -4,16 +4,16 @@ bt_engine.launch.py — BT 决策引擎启动
 
 启动示例:
   # 红方全场
-  ros2 launch r2_bt bt_engine.launch.py match_config:=config/match_red.json
+  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param.yaml match_config:=config/match_red.json
 
   # 蓝方全场
-  ros2 launch r2_bt bt_engine.launch.py match_config:=config/match_blue.json
+  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param.yaml match_config:=config/match_blue.json
 
   # 美林赛段独立调试（不需要 match_config）
   ros2 launch r2_bt bt_engine.launch.py tree_file:=meilin_stage.xml
 
   # 自定义 Groot2 端口
-  ros2 launch r2_bt bt_engine.launch.py match_config:=config/match_red.json groot2_port:=1668
+  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param.yaml match_config:=config/match_red.json groot2_port:=1668
 """
 
 from launch import LaunchDescription
@@ -35,7 +35,13 @@ def generate_launch_description():
         default_value='',
         description='比赛配置文件 (位于 r2_bt/config/ 目录下): '
                     'config/match_red.json / config/match_blue.json。'
-                    '留空则跳过启动加载，PrepareArea/FinalArea 需自行设置 blackboard 变量。')
+                    '留空则跳过旧配置加载，FinalArea 需自行设置 blackboard 变量。')
+
+    param_config_arg = DeclareLaunchArgument(
+        'param_config',
+        default_value='config/param.yaml',
+        description='参数 YAML 文件 (位于 r2_bt/config/ 目录下): '
+                    'config/param.yaml。目前用于 PrepareArea。')
 
     groot2_port_arg = DeclareLaunchArgument(
         'groot2_port',
@@ -65,6 +71,7 @@ def generate_launch_description():
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
+        param_config_arg,
         groot2_port_arg,
         tick_frequency_arg,
         segment_topic_arg,
@@ -78,6 +85,7 @@ def generate_launch_description():
             parameters=[{
                 'tree_file': LaunchConfiguration('tree_file'),
                 'match_config': LaunchConfiguration('match_config'),
+                'param_config': LaunchConfiguration('param_config'),
                 'groot2_port': LaunchConfiguration('groot2_port'),
                 'tick_frequency': LaunchConfiguration('tick_frequency'),
                 'segment_topic': LaunchConfiguration('segment_topic'),

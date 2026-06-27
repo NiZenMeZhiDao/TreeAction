@@ -7,8 +7,8 @@ r2_sim.launch.py — 仿真环境启动
   2. r2_bt (BT 决策引擎)
 
 启动示例:
-  ros2 launch r2_bringup r2_sim.launch.py match_config:=config/match_red.json    # 红方全场
-  ros2 launch r2_bringup r2_sim.launch.py match_config:=config/match_blue.json   # 蓝方全场
+  ros2 launch r2_bringup r2_sim.launch.py param_config:=config/param.yaml match_config:=config/match_red.json    # 红方全场
+  ros2 launch r2_bringup r2_sim.launch.py param_config:=config/param.yaml match_config:=config/match_blue.json   # 蓝方全场
   ros2 launch r2_bringup r2_sim.launch.py tree_file:=meilin_stage.xml            # 梅林调试
 """
 
@@ -33,6 +33,12 @@ def generate_launch_description():
         description='比赛配置文件 (位于 r2_bt/config/ 目录下): '
                     'config/match_red.json / config/match_blue.json。'
                     '留空则跳过启动加载。')
+
+    param_config_arg = DeclareLaunchArgument(
+        'param_config',
+        default_value='config/param.yaml',
+        description='参数 YAML 文件 (位于 r2_bt/config/ 目录下): '
+                    'config/param.yaml。目前用于 PrepareArea。')
 
     groot2_port_arg = DeclareLaunchArgument(
         'groot2_port',
@@ -62,6 +68,7 @@ def generate_launch_description():
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
+        param_config_arg,
         groot2_port_arg,
         tick_frequency_arg,
         segment_topic_arg,
@@ -124,6 +131,7 @@ def generate_launch_description():
             parameters=[{
                 'tree_file': LaunchConfiguration('tree_file'),
                 'match_config': LaunchConfiguration('match_config'),
+                'param_config': LaunchConfiguration('param_config'),
                 'groot2_port': LaunchConfiguration('groot2_port'),
                 'tick_frequency': LaunchConfiguration('tick_frequency'),
                 'segment_topic': LaunchConfiguration('segment_topic'),

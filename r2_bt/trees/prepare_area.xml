@@ -2,45 +2,62 @@
 <!--
   prepare_area.xml — 准备区局部执行树
 
-  只执行准备区流程：移动到矛头准备区，等待 ARES tool service 完成。
-  固定参数来自 match_config 的 prepare.* 字段。
+  移动到矛头抓取点并抓取，然后并行移动到对接待定区并执行 dock_extend。
+  固定参数来自 param_config 的 prepare_area.* 字段。
 -->
 <root BTCPP_format="4" main_tree_to_execute="PrepareArea">
   <BehaviorTree ID="PrepareArea">
     <Sequence>
 
-      <Sequence name="PREPARE_01_MOVE_TO_SPEAR_AREA">
-        <RetrySegment num_attempts="3">
-          <MoveToPose target_x="{prepare_spear_prep_target_x}"
-                      target_y="{prepare_spear_prep_target_y}"
-                      target_yaw="{prepare_spear_prep_target_yaw}"
-                      max_speed="{prepare_spear_prep_max_speed}"
-                      pid_profile="{prepare_spear_prep_pid_profile}"
-                      timeout_sec="{prepare_spear_prep_timeout_sec}"
+      <Sequence name="PREPARE_01_MOVE_TO_SPEAR_PICKUP">
+        <RetrySegment num_attempts="{prepare_motion_retry_attempts}">
+          <MoveToPose target_x="{prepare_spear_pickup_target_x}"
+                      target_y="{prepare_spear_pickup_target_y}"
+                      target_yaw="{prepare_spear_pickup_target_yaw}"
+                      frame_id="{prepare_spear_pickup_frame_id}"
+                      pid_profile="{prepare_motion_pid_profile}"
+                      timeout_sec="{prepare_motion_timeout_sec}"
                       error_msg="{last_error}"/>
         </RetrySegment>
       </Sequence>
 
-      <Sequence name="PREPARE_02_WAIT_BUILD_SIGNAL">
-        <WaitForIntSignal signal_topic="{prepare_deck_topic}"
-                          expected_value="{prepare_build_signal}"
-                          timeout_sec="{prepare_build_timeout_sec}"
-                          received_value="{prepare_received_signal}"
-                          message="{last_error}"/>
-      </Sequence>
-
-      <Sequence name="PREPARE_03_WAIT_ARES_TOOL">
-        <RetrySegment num_attempts="3">
-          <AresToolAction action="{prepare_ares_tool_action}"
-                          service_name="{prepare_ares_tool_service_name}"
-                          timeout_sec="{prepare_ares_tool_timeout_sec}"
-                          arg0="{prepare_ares_tool_arg0}"
-                          arg1="{prepare_ares_tool_arg1}"
-                          arg2="{prepare_ares_tool_arg2}"
-                          arg3="{prepare_ares_tool_arg3}"
+      <Sequence name="PREPARE_02_GRASP_SPEAR">
+        <RetrySegment num_attempts="{prepare_spear_tool_retry_attempts}">
+          <AresToolAction action="{prepare_spear_tool_grasp_action}"
+                          service_name="{prepare_spear_tool_service_name}"
+                          timeout_sec="{prepare_spear_tool_grasp_timeout_sec}"
+                          arg0="{prepare_spear_tool_arg0}"
+                          arg1="{prepare_spear_tool_arg1}"
+                          arg2="{prepare_spear_tool_arg2}"
+                          arg3="{prepare_spear_tool_arg3}"
                           message="{last_error}"/>
         </RetrySegment>
       </Sequence>
+
+      <Parallel name="PREPARE_03_DOCK_STANDBY_AND_EXTEND"
+                success_count="2"
+                failure_count="1">
+        <RetrySegment num_attempts="{prepare_motion_retry_attempts}">
+          <MoveToPose target_x="{prepare_dock_standby_target_x}"
+                      target_y="{prepare_dock_standby_target_y}"
+                      target_yaw="{prepare_dock_standby_target_yaw}"
+                      frame_id="{prepare_dock_standby_frame_id}"
+                      pid_profile="{prepare_motion_pid_profile}"
+                      timeout_sec="{prepare_motion_timeout_sec}"
+                      error_msg="{last_error}"/>
+        </RetrySegment>
+
+        <RetrySegment num_attempts="{prepare_spear_tool_retry_attempts}">
+          <AresToolAction action="{prepare_spear_tool_dock_extend_action}"
+                          service_name="{prepare_spear_tool_service_name}"
+                          timeout_sec="{prepare_spear_tool_dock_extend_timeout_sec}"
+                          arg0="{prepare_spear_tool_arg0}"
+                          arg1="{prepare_spear_tool_arg1}"
+                          arg2="{prepare_spear_tool_arg2}"
+                          arg3="{prepare_spear_tool_arg3}"
+                          message="{last_error}"/>
+        </RetrySegment>
+      </Parallel>
 
       <SetDebugStatus execution_state="MISSION_SUCCESS" active_action="" last_error=""/>
 

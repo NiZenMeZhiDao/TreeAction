@@ -16,6 +16,7 @@ find_package(r2_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 #------------------------------------------------------------
 # BT nodes library (C++)
@@ -86,6 +87,7 @@ ament_target_dependencies(r2_bt_engine
 
 target_link_libraries(r2_bt_engine r2_bt_nodes)
 target_link_libraries(r2_bt_engine nlohmann_json::nlohmann_json)
+target_link_libraries(r2_bt_engine yaml-cpp)
 
 #------------------------------------------------------------
 # 安装

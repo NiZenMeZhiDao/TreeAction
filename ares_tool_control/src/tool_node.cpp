@@ -61,7 +61,6 @@ std::string valid_actions()
 }  // namespace
 
 using r2_interfaces::srv::ToolAction;
-using r2_interfaces::action::SuspensionControl;
 
 class AresToolNode : public rclcpp::Node {
       public:

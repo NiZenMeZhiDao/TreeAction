@@ -106,6 +106,14 @@ def generate_launch_description():
             output='screen',
         ),
 
+        # ---- ARES R2 工具控制 (arm_grasp / spear 等 USB 通信) ----
+        Node(
+            package='ares_tool_control',
+            executable='tool_node',
+            name='ares_tool_node',
+            output='screen',
+        ),
+
         # ---- 上层: BT 决策引擎 ----
         Node(
             package='r2_bt',

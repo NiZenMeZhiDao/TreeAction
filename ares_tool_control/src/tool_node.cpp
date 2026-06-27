@@ -18,12 +18,10 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
-<<<<<<< Updated upstream
+
 #include "r2_interfaces/srv/tool_action.hpp"
 #include "r2_interfaces/action/suspension_control.hpp"
-=======
-#include "ares_tool_interfaces/srv/tool_action.hpp"
->>>>>>> Stashed changes
+
 
 #include "ares_tool_control/ares_usb.hpp"
 

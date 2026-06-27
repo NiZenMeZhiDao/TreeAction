@@ -5,16 +5,13 @@
 #include <behaviortree_cpp/loggers/groot2_publisher.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nlohmann/json.hpp>
-<<<<<<< Updated upstream
-#include <r2_interfaces/srv/get_action_seq.hpp>
-=======
+
 #include <pick_action_interfaces/action/pick_sequence.hpp>
 #include <r2_interfaces/action/arm_action.hpp>
 #include <r2_interfaces/action/spear_action.hpp>
 #include <r2_interfaces/action/suspension_control.hpp>
 #include <r2_interfaces/srv/get_action_seq.hpp>
 #include <r2_interfaces/srv/start_autonomy.hpp>
->>>>>>> Stashed changes
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>

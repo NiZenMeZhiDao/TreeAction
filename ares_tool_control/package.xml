@@ -10,12 +10,10 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-<<<<<<< Updated upstream
+  
   <depend>rclcpp_action</depend>
   <depend>r2_interfaces</depend>
-=======
-  <depend>ares_tool_interfaces</depend>
->>>>>>> Stashed changes
+
   <depend>libusb-1.0</depend>
 
   <test_depend>ament_lint_auto</test_depend>

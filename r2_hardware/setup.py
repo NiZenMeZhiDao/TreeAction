@@ -23,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'suspension_action_server = r2_hardware.action_servers.suspension_action_server:main',
+            'step_motion_action_server = r2_hardware.action_servers.step_motion_action_server:main',
             'odom_simulator = r2_hardware.topic_nodes.odom_simulator:main',
         ],
     },

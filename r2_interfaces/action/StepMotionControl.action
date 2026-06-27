@@ -1,0 +1,36 @@
+# StepMotionControl.action — 上下台阶 + 阶段速度耦合控制
+# 由 r2_hardware/suspension_action_server 执行。完成条件仍然是上下台阶
+# 状态机结束；底盘速度由当前台阶阶段决定，成功完成时不额外清零速度。
+
+uint8 MODE_AUTO=0
+uint8 MODE_CLIMB_UP=1
+uint8 MODE_CLIMB_DOWN=2
+
+uint8 DIR_FORWARD=0
+uint8 DIR_LEFT=1
+uint8 DIR_RIGHT=2
+uint8 DIR_BACKWARD=3
+
+uint8 mode
+uint8 direction
+float32 height
+bool enable_stage_motion
+bool enable_pose_correction
+float32 speed_scale
+float32 timeout_sec
+---
+bool success
+string message
+int32 final_state
+float32 elapsed_sec
+---
+int32 current_state
+float32 elapsed_sec
+float32 cmd_vx
+float32 cmd_vy
+float32 cmd_wz
+float64 current_x
+float64 current_y
+float64 current_yaw_deg
+float32[] wheel_heights_current
+float32[] wheel_heights_target

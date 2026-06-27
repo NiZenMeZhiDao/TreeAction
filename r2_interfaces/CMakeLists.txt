@@ -15,6 +15,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/ArmAction.action"
   "action/GoToPose.action"
   "action/SpearAction.action"
+  "action/StepMotionControl.action"
   "action/SuspensionControl.action"
   "srv/GetActionSeq.srv"
   "srv/StartAutonomy.srv"

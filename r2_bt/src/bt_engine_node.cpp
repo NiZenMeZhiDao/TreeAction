@@ -1,10 +1,10 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <action_of_motion_interfaces/action/move_to_pose.hpp>
-#include <ares_tool_interfaces/srv/tool_action.hpp>
 #include <behaviortree_cpp/bt_factory.h>
 #include <behaviortree_cpp/loggers/groot2_publisher.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <pick_action_interfaces/action/pick_sequence.hpp>
 #include <r2_interfaces/action/arm_action.hpp>
@@ -29,18 +29,19 @@
 #include <vector>
 
 #include "r2_bt/nodes/actions/ares_tool_action.hpp"
+#include "r2_bt/nodes/actions/go_to_pose.hpp"
 #include "r2_bt/nodes/actions/meilin_fetch.hpp"
 #include "r2_bt/nodes/actions/meilin_move.hpp"
 #include "r2_bt/nodes/actions/move_to_pose.hpp"
-<<<<<<< Updated upstream
-=======
 #include "r2_bt/nodes/actions/place_object_placeholder.hpp"
 #include "r2_bt/nodes/actions/pick_action.hpp"
->>>>>>> Stashed changes
 #include "r2_bt/nodes/actions/pop_next_meilin_segment.hpp"
 #include "r2_bt/nodes/actions/pop_next_segment.hpp"
+#include "r2_bt/nodes/actions/select_final_target.hpp"
 #include "r2_bt/nodes/actions/suspension_control.hpp"
 #include "r2_bt/nodes/actions/wait_arm_idle.hpp"
+#include "r2_bt/nodes/actions/wait_for_int_signal.hpp"
+#include "r2_bt/nodes/actions/wait_seconds.hpp"
 #include "r2_bt/nodes/conditions/is_segment_type.hpp"
 #include "r2_bt/nodes/conditions/is_string_empty.hpp"
 #include "r2_bt/nodes/conditions/is_string_non_empty.hpp"
@@ -64,6 +65,7 @@ public:
     declare_parameter("mf_action_topic", "/mf_action_seq");
     declare_parameter("buffer_service", "/get_action_seq");
     declare_parameter("tree_file", "full_match.xml");
+    declare_parameter("param_config", "");
     declare_parameter("match_config", "");
 
     // === 梅林区参数 ===
@@ -90,23 +92,25 @@ public:
     mf_action_topic_ = get_parameter("mf_action_topic").as_string();
     buffer_service_ = get_parameter("buffer_service").as_string();
     tree_file_ = get_parameter("tree_file").as_string();
+    param_config_ = get_parameter("param_config").as_string();
     match_config_ = get_parameter("match_config").as_string();
     load_meilin_parameters();
 
     // === 注册 BT 节点 ===
     factory_.registerNodeType<r2_bt::MoveToPose>("MoveToPose");
+    factory_.registerNodeType<r2_bt::GoToPose>("GoToPose");
     factory_.registerNodeType<r2_bt::MeilinMove>("Move");
     factory_.registerNodeType<r2_bt::MeilinFetch>("Fetch");
     factory_.registerNodeType<r2_bt::PopNextSegment>("PopNextSegment");
     factory_.registerNodeType<r2_bt::PopNextMeilinSegment>("PopNextMeilinSegment");
     factory_.registerNodeType<r2_bt::SuspensionControl>("SuspensionControl");
     factory_.registerNodeType<r2_bt::AresToolAction>("AresToolAction");
-<<<<<<< Updated upstream
-=======
     factory_.registerNodeType<r2_bt::PickAction>("PickAction");
-    factory_.registerNodeType<r2_bt::ArmAction>("ArmAction");
->>>>>>> Stashed changes
+    factory_.registerNodeType<r2_bt::PlaceObjectPlaceholder>("PlaceObjectPlaceholder");
+    factory_.registerNodeType<r2_bt::SelectFinalTarget>("SelectFinalTarget");
     factory_.registerNodeType<r2_bt::WaitArmIdle>("WaitArmIdle");
+    factory_.registerNodeType<r2_bt::WaitForIntSignal>("WaitForIntSignal");
+    factory_.registerNodeType<r2_bt::WaitSeconds>("WaitSeconds");
     factory_.registerNodeType<r2_bt::SwitchSegmentType>("SwitchSegmentType");
     factory_.registerNodeType<r2_bt::IsSegmentType>("IsSegmentType");
     factory_.registerNodeType<r2_bt::IsStringEmpty>("IsStringEmpty");
@@ -182,7 +186,8 @@ public:
     blackboard_->set("meilin_pose_yaw", 0.0);
     blackboard_->set("meilin_pose_last_update_sec", 0.0);
 
-    // 加载比赛配置（PrepareArea/FinalArea 的固定参数）
+    // 加载准备区和比赛配置（PrepareArea/FinalArea 的固定参数）
+    load_param_config();
     if (!match_config_.empty())
     {
       load_match_config();
@@ -196,48 +201,6 @@ public:
 
     // === 暂存区 Service Client（替代直接订阅 /mf_action_seq） ===
     buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
-<<<<<<< Updated upstream
-=======
-    suspension_client_ =
-        rclcpp_action::create_client<r2_interfaces::action::SuspensionControl>(
-            get_node_base_interface(),
-            get_node_graph_interface(),
-            get_node_logging_interface(),
-            get_node_waitables_interface(),
-            "suspension_control");
-    arm_client_ =
-        rclcpp_action::create_client<r2_interfaces::action::ArmAction>(
-            get_node_base_interface(),
-            get_node_graph_interface(),
-            get_node_logging_interface(),
-            get_node_waitables_interface(),
-            "arm_action");
-    spear_client_ =
-        rclcpp_action::create_client<r2_interfaces::action::SpearAction>(
-            get_node_base_interface(),
-            get_node_graph_interface(),
-            get_node_logging_interface(),
-            get_node_waitables_interface(),
-            "spear_action");
-
-    tool_service_name_ = "/ares_tool_node/tool_action";
-    (void)blackboard_->get("prepare_spear_tool_service_name", tool_service_name_);
-    tool_client_ = create_client<ares_tool_interfaces::srv::ToolAction>(tool_service_name_);
-    pick_action_server_name_ = "/pick_action";
-    (void)blackboard_->get("prepare_pick_action_server_name", pick_action_server_name_);
-    pick_action_client_ =
-        rclcpp_action::create_client<pick_action_interfaces::action::PickSequence>(
-            get_node_base_interface(),
-            get_node_graph_interface(),
-            get_node_logging_interface(),
-            get_node_waitables_interface(),
-            pick_action_server_name_);
-    start_service_ = create_service<r2_interfaces::srv::StartAutonomy>(
-        "/bt_engine/start_autonomy",
-        std::bind(&BtEngineNode::start_autonomy_callback, this,
-                  std::placeholders::_1, std::placeholders::_2));
-    status_pub_ = create_publisher<std_msgs::msg::String>("/bt_engine/status", 10);
->>>>>>> Stashed changes
 
     // === 订阅 ===
     segment_sub_ = create_subscription<std_msgs::msg::String>(
@@ -281,193 +244,7 @@ private:
   // 字符串命令 → uint8 常量映射
   // =========================================================================
 
-<<<<<<< Updated upstream
   static uint8_t parse_spear_command_str(const std::string& value)
-=======
-  static std::string normalize_region(const std::string& region)
-  {
-    if (region.empty()) return "full";
-    if (region == "full" || region == "prepare" ||
-        region == "meilin" || region == "final")
-    {
-      return region;
-    }
-    return "";
-  }
-
-  static std::string tree_file_for_region(const std::string& region)
-  {
-    if (region == "prepare") return "prepare_area.xml";
-    if (region == "meilin") return "meilin_stage.xml";
-    if (region == "final") return "final_area.xml";
-    return "full_match.xml";
-  }
-
-  bool meilin_plan_ready() const
-  {
-    r2_bt::SegmentQueuePtr queue;
-    if (!blackboard_->get("segment_queue", queue) || !queue)
-    {
-      return false;
-    }
-    std::unique_lock<std::mutex> lock(queue->mtx);
-    return !queue->items.empty();
-  }
-
-  static void add_missing_if(bool condition,
-                             const std::string& name,
-                             std::vector<std::string>& missing)
-  {
-    if (condition)
-    {
-      missing.push_back(name);
-    }
-  }
-
-  std::vector<std::string> collect_missing_dependencies(const std::string& region)
-  {
-    std::vector<std::string> missing;
-
-    const bool needs_prepare_config = region == "full" || region == "prepare";
-    const bool needs_match_config = region == "final";
-    const bool needs_meilin_plan = region == "full" || region == "meilin";
-    const bool needs_meilin_actions = region == "full" || region == "meilin";
-    const bool needs_tool = region == "full" || region == "prepare";
-    const bool needs_pick_action = region == "full" || region == "prepare";
-
-    add_missing_if(needs_prepare_config && !prepare_config_loaded_,
-                   "param_config.prepare_area", missing);
-    add_missing_if(needs_match_config && match_config_.empty(),
-                   "match_config", missing);
-    add_missing_if(needs_meilin_plan && !meilin_plan_ready(),
-                   "meilin_plan", missing);
-
-    add_missing_if(!move_to_pose_client_ ||
-                   !move_to_pose_client_->action_server_is_ready(),
-                   "/move_to_pose", missing);
-    add_missing_if(needs_meilin_actions &&
-                   (!suspension_client_ ||
-                    !suspension_client_->action_server_is_ready()),
-                   "/suspension_control", missing);
-    add_missing_if(needs_meilin_actions &&
-                   (!arm_client_ || !arm_client_->action_server_is_ready()),
-                   "/arm_action", missing);
-    add_missing_if(needs_meilin_actions &&
-                   (!spear_client_ || !spear_client_->action_server_is_ready()),
-                   "/spear_action", missing);
-    add_missing_if(needs_tool &&
-                   (!tool_client_ || !tool_client_->service_is_ready()),
-                   tool_service_name_, missing);
-    add_missing_if(needs_pick_action &&
-                   (!pick_action_client_ ||
-                    !pick_action_client_->action_server_is_ready()),
-                   pick_action_server_name_, missing);
-    add_missing_if(needs_meilin_plan &&
-                   (!buffer_client_ || !buffer_client_->service_is_ready()),
-                   buffer_service_, missing);
-
-    const double age_sec = localization_age_sec();
-    add_missing_if(!latest_localization_received_ ||
-                   age_sec < 0.0 ||
-                   age_sec > localization_timeout_sec_,
-                   meilin_pose_topic_ + ":fresh_pose", missing);
-    add_missing_if(require_map_relocalization_ &&
-                   latest_localization_received_ &&
-                   latest_localization_frame_ != "map",
-                   meilin_pose_topic_ + ":map_frame", missing);
-
-    return missing;
-  }
-
-  double localization_age_sec()
-  {
-    if (!latest_localization_received_)
-    {
-      return -1.0;
-    }
-    return now().seconds() - latest_localization_update_sec_;
-  }
-
-  static std::string join_missing(const std::vector<std::string>& missing)
-  {
-    std::ostringstream oss;
-    for (size_t i = 0; i < missing.size(); ++i)
-    {
-      if (i > 0) oss << ", ";
-      oss << missing[i];
-    }
-    return oss.str();
-  }
-
-  void reset_runtime_blackboard_for_start()
-  {
-    blackboard_->set("current_segment_index", -1);
-    blackboard_->set("segment_type", std::string{});
-    blackboard_->set("segment_debug_name", std::string{});
-    blackboard_->set("active_action", std::string{});
-    blackboard_->set("retry_count", 0);
-    blackboard_->set("last_error", std::string{});
-    blackboard_->set("execution_state", std::string{"RUNNING"});
-
-    blackboard_->set("meilin_current_row", meilin_initial_row_);
-    blackboard_->set("meilin_current_col", meilin_initial_col_);
-    blackboard_->set("meilin_current_height", meilin_initial_height_);
-    blackboard_->set("meilin_current_yaw", meilin_initial_yaw_);
-    blackboard_->set("meilin_pose_is_cell_center", true);
-    blackboard_->set("meilin_suspension_offset", 0.0);
-  }
-
-  void start_autonomy_callback(
-      const std::shared_ptr<r2_interfaces::srv::StartAutonomy::Request> request,
-      std::shared_ptr<r2_interfaces::srv::StartAutonomy::Response> response)
-  {
-    if (autonomy_enabled_)
-    {
-      response->success = false;
-      response->message = "Autonomy is already running: region=" + active_region_;
-      return;
-    }
-
-    const std::string region = normalize_region(request->region);
-    if (region.empty())
-    {
-      response->success = false;
-      response->message =
-          "Invalid region. Expected one of: full, prepare, meilin, final.";
-      return;
-    }
-
-    requested_region_ = region;
-    const auto missing = collect_missing_dependencies(region);
-    if (!missing.empty())
-    {
-      phase_ = "NOT_READY";
-      response->success = false;
-      response->message = "Missing dependencies: " + join_missing(missing);
-      blackboard_->set("last_error", response->message);
-      blackboard_->set("execution_state", std::string{"NOT_READY"});
-      publish_status();
-      RCLCPP_WARN(get_logger(), "Autonomy start rejected for region=%s: %s",
-                  region.c_str(), response->message.c_str());
-      return;
-    }
-
-    tree_file_ = tree_file_for_region(region);
-    active_region_ = region;
-    reset_runtime_blackboard_for_start();
-    build_fixed_tree();
-    autonomy_enabled_ = true;
-    phase_ = "RUNNING";
-
-    response->success = true;
-    response->message = "Autonomy started: region=" + region +
-                        ", tree_file=" + tree_file_;
-    publish_status();
-    RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
-  }
-
-  void publish_status()
->>>>>>> Stashed changes
   {
     if (value == "prep" || value == "prepare") return 1;
     if (value == "grasp") return 2;
@@ -540,8 +317,6 @@ private:
   // 比赛配置加载（PrepareArea / FinalArea 固定参数）
   // =========================================================================
 
-<<<<<<< Updated upstream
-=======
   void load_param_config()
   {
     prepare_config_loaded_ = false;
@@ -551,7 +326,7 @@ private:
       return;
     }
 
-    const std::string config_path = resolve_config_file(param_config_);
+    const std::string config_path = resolve_param_config_file();
     RCLCPP_INFO(get_logger(), "Loading param config: %s", config_path.c_str());
 
     YAML::Node cfg;
@@ -670,7 +445,6 @@ private:
     return child.as<T>();
   }
 
->>>>>>> Stashed changes
   void load_match_config()
   {
     std::string config_path = resolve_config_file();
@@ -691,23 +465,6 @@ private:
       return;
     }
 
-    const std::vector<std::string> required_sections = {
-      "prepare.spear_prep", "prepare.ares_tool",
-      "final.move2", "final.final_move2", "final.place_mid", "final.place_high", "final.finish"
-    };
-    for (const auto& path : required_sections)
-    {
-      if (!resolve_json_path(cfg, path))
-      {
-        RCLCPP_ERROR(get_logger(),
-                     "Match config missing required field: %s.", path.c_str());
-        blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
-        blackboard_->set("last_error",
-                         std::string{"Missing required config field: " + path});
-        return;
-      }
-    }
-
     // 更新红蓝方
     const auto match_side = cfg.value("match_side", "unknown");
     if (match_side == "red" || match_side == "blue")
@@ -720,70 +477,72 @@ private:
     }
     RCLCPP_INFO(get_logger(), "Match side: %s", match_side.c_str());
 
-    // PrepareArea 参数
+    // FinalArea 参数
+    if (!cfg.contains("final") || !cfg["final"].is_object())
     {
-      const auto& p = cfg["prepare"];
-      const auto& spear_prep = p["spear_prep"];
-      blackboard_->set("prepare_spear_prep_spear_command",
-                       parse_spear_command_str(spear_prep.value("spear_command", "prep")));
-      blackboard_->set("prepare_spear_prep_target_x", spear_prep.value("target_x", 0.0));
-      blackboard_->set("prepare_spear_prep_target_y", spear_prep.value("target_y", 0.0));
-      blackboard_->set("prepare_spear_prep_target_yaw", spear_prep.value("target_yaw", 0.0));
-      blackboard_->set("prepare_spear_prep_max_speed", spear_prep.value("max_speed", 0.5));
-      blackboard_->set("prepare_spear_prep_pid_profile", spear_prep.value("pid_profile", 1));
-      blackboard_->set("prepare_spear_prep_timeout_sec", spear_prep.value("timeout_sec", 30.0));
-
-      const auto& ares_tool = p["ares_tool"];
-      blackboard_->set("prepare_ares_tool_action",
-                       ares_tool.value("action", "grasp"));
-      blackboard_->set("prepare_ares_tool_service_name",
-                       ares_tool.value("service_name", "/ares_tool_node/tool_action"));
-      blackboard_->set("prepare_ares_tool_timeout_sec",
-                       ares_tool.value("timeout_sec", 30.0));
-      blackboard_->set("prepare_ares_tool_arg0", ares_tool.value("arg0", 0.0));
-      blackboard_->set("prepare_ares_tool_arg1", ares_tool.value("arg1", 0.0));
-      blackboard_->set("prepare_ares_tool_arg2", ares_tool.value("arg2", 0.0));
-      blackboard_->set("prepare_ares_tool_arg3", ares_tool.value("arg3", 0.0));
-      RCLCPP_INFO(get_logger(), "PrepareArea params loaded: move + ares_tool service");
+      blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+      blackboard_->set("last_error", std::string{"Match config missing final section"});
+      RCLCPP_ERROR(get_logger(), "Match config missing required section: final.");
+      return;
     }
 
-    // FinalArea 参数
+    const auto& final_cfg = cfg["final"];
+    const auto standby = final_cfg.value("standby", nlohmann::json::object());
+    const auto targets = final_cfg.value("targets", nlohmann::json::object());
+    if (!standby.is_object() || !targets.is_object())
     {
-      const auto& f = cfg["final"];
-      const auto& move2 = f["move2"];
-      blackboard_->set("final_move2_target_x", move2.value("target_x", 0.0));
-      blackboard_->set("final_move2_target_y", move2.value("target_y", 0.0));
-      blackboard_->set("final_move2_target_yaw", move2.value("target_yaw", 0.0));
-      blackboard_->set("final_move2_max_speed", move2.value("max_speed", 0.5));
-      blackboard_->set("final_move2_timeout_sec", move2.value("timeout_sec", 30.0));
+      blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+      blackboard_->set("last_error",
+                       std::string{"Match config missing final.standby/final.targets"});
+      RCLCPP_ERROR(get_logger(),
+                   "Match config missing one of: final.standby, final.targets.");
+      return;
+    }
 
-      const auto& final_move2 = f["final_move2"];
-      blackboard_->set("final_final_move2_target_x", final_move2.value("target_x", 0.0));
-      blackboard_->set("final_final_move2_target_y", final_move2.value("target_y", 0.0));
-      blackboard_->set("final_final_move2_target_yaw", final_move2.value("target_yaw", 0.0));
-      blackboard_->set("final_final_move2_max_speed", final_move2.value("max_speed", 0.5));
-      blackboard_->set("final_final_move2_timeout_sec", final_move2.value("timeout_sec", 30.0));
+    blackboard_->set("final_deck_topic",
+                     final_cfg.value("deck_topic", "/aruco_comm/tx_id"));
+    blackboard_->set("final_place_signal", final_cfg.value("place_signal", 7));
+    blackboard_->set("final_command_timeout_sec",
+                     final_cfg.value("command_timeout_sec", 0.0));
+    blackboard_->set("final_place_signal_timeout_sec",
+                     final_cfg.value("place_signal_timeout_sec", 0.0));
+    blackboard_->set("final_post_place_wait_sec",
+                     final_cfg.value("post_place_wait_sec", 1.0));
+    blackboard_->set("final_standby_target_x", standby.value("target_x", 0.0));
+    blackboard_->set("final_standby_target_y", standby.value("target_y", 0.0));
+    blackboard_->set("final_standby_target_yaw", standby.value("target_yaw", 0.0));
+    blackboard_->set("final_standby_timeout_sec",
+                     standby.value("timeout_sec", 60.0));
 
-      const auto& place_mid = f["place_mid"];
-      blackboard_->set("final_place_mid_arm_command",
-                       parse_arm_command_str(place_mid.value("arm_command", "place_mid")));
-      blackboard_->set("final_place_mid_timeout_sec", place_mid.value("timeout_sec", 30.0));
+    const auto load_final_target =
+        [this, &targets](const std::string& key) -> bool {
+          if (!targets.contains(key) || !targets[key].is_object())
+          {
+            blackboard_->set("last_error",
+                             std::string{"Missing final target config: "} + key);
+            return false;
+          }
+          const auto& target = targets[key];
+          const std::string prefix = "final_target_" + key + "_";
+          blackboard_->set(prefix + "target_x", target.value("target_x", 0.0));
+          blackboard_->set(prefix + "target_y", target.value("target_y", 0.0));
+          blackboard_->set(prefix + "target_yaw", target.value("target_yaw", 0.0));
+          blackboard_->set(prefix + "max_speed", target.value("max_speed", 0.4));
+          blackboard_->set(prefix + "pid_profile", target.value("pid_profile", 1));
+          blackboard_->set(prefix + "timeout_sec", target.value("timeout_sec", 30.0));
+          return true;
+        };
 
-      const auto& place_high = f["place_high"];
-      blackboard_->set("final_place_high_arm_command",
-                       parse_arm_command_str(place_high.value("arm_command", "place_high")));
-      blackboard_->set("final_place_high_timeout_sec", place_high.value("timeout_sec", 30.0));
-
-      const auto& finish = f["finish"];
-      blackboard_->set("final_finish_arm_command",
-                       parse_arm_command_str(finish.value("arm_command", "idle")));
-      blackboard_->set("final_finish_timeout_sec", finish.value("timeout_sec", 30.0));
-      blackboard_->set("final_finish_suspension_mode", finish.value("suspension_mode", 3));
-      blackboard_->set("final_finish_suspension_direction", finish.value("suspension_direction", 0));
-      blackboard_->set("final_finish_suspension_height", finish.value("suspension_height", 30.0));
-      blackboard_->set("final_finish_suspension_timeout_sec",
-                       finish.value("suspension_timeout_sec", 10.0));
-      RCLCPP_INFO(get_logger(), "FinalArea params loaded: 5 segments");
+    for (const auto& key : {"2_left", "2_mid", "2_right",
+                            "3_left", "3_mid", "3_right"})
+    {
+      if (!load_final_target(key))
+      {
+        blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+        RCLCPP_ERROR(get_logger(), "Match config missing final.targets.%s",
+                     key);
+        return;
+      }
     }
 
     blackboard_->set("execution_state", std::string{"CONFIG_LOADED"});
@@ -815,6 +574,16 @@ private:
     if (match_config_.find("config/") == 0)
       return share_dir + "/" + match_config_;
     return share_dir + "/config/" + match_config_;
+  }
+
+  std::string resolve_param_config_file() const
+  {
+    if (!param_config_.empty() && param_config_.front() == '/')
+      return param_config_;
+    auto share_dir = ament_index_cpp::get_package_share_directory("r2_bt");
+    if (param_config_.find("config/") == 0)
+      return share_dir + "/" + param_config_;
+    return share_dir + "/config/" + param_config_;
   }
 
   // =========================================================================
@@ -1461,31 +1230,17 @@ private:
 
   // 暂存区 Service Client
   rclcpp::Client<r2_interfaces::srv::GetActionSeq>::SharedPtr buffer_client_;
-<<<<<<< Updated upstream
   rclcpp_action::Client<MoveToPoseAction>::SharedPtr move_to_pose_client_;
-=======
-  rclcpp::Client<ares_tool_interfaces::srv::ToolAction>::SharedPtr tool_client_;
-  rclcpp_action::Client<MoveToPoseAction>::SharedPtr move_to_pose_client_;
-  rclcpp_action::Client<pick_action_interfaces::action::PickSequence>::SharedPtr
-      pick_action_client_;
-  rclcpp_action::Client<r2_interfaces::action::SuspensionControl>::SharedPtr
-      suspension_client_;
-  rclcpp_action::Client<r2_interfaces::action::ArmAction>::SharedPtr arm_client_;
-  rclcpp_action::Client<r2_interfaces::action::SpearAction>::SharedPtr spear_client_;
->>>>>>> Stashed changes
 
   unsigned groot2_port_ = 1667;
   std::string segment_topic_;
   std::string mf_action_topic_;
   std::string buffer_service_;
-<<<<<<< Updated upstream
-=======
-  std::string tool_service_name_;
-  std::string pick_action_server_name_;
->>>>>>> Stashed changes
   std::string meilin_pose_topic_;
   std::string tree_file_;
+  std::string param_config_;
   std::string match_config_;
+  bool prepare_config_loaded_ = false;
 
   // 梅林区参数
   std::string meilin_side_ = "blue";

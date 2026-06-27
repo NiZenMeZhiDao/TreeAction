@@ -12,13 +12,14 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(r2_interfaces REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
 
 add_executable(tool_node src/tool_node.cpp src/ares_usb.cpp)
 target_include_directories(tool_node PRIVATE include)
-ament_target_dependencies(tool_node rclcpp r2_interfaces)
+ament_target_dependencies(tool_node rclcpp rclcpp_action r2_interfaces)
 target_link_libraries(tool_node PkgConfig::LIBUSB)
 
 install(TARGETS tool_node DESTINATION lib/${PROJECT_NAME})

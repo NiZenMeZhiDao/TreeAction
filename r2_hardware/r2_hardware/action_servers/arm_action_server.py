@@ -132,27 +132,6 @@ class ArmActionServer(Node):
         self.current_command = command
         self.wait_result = wait_result
 
-        # TODO: 临时联调桩。机械臂下位机协议稳定后，恢复下面的同步/后台等待逻辑。
-        self.current_state = ArmState.DONE
-        self.background_active = False
-        self.background_done = True
-        self.background_success = True
-        self.background_message = f'Stubbed arm command {command} done'
-        self._publish_runtime_state()
-        self.get_logger().info(
-            f'Stubbed arm goal returning immediately: command={command}, '
-            f'wait_result={wait_result}, timeout={timeout_sec}s'
-        )
-        goal_handle.succeed()
-        self.current_state = ArmState.IDLE
-        self.current_command = ''
-        return ArmAction.Result(
-            success=True,
-            message=f'Stubbed arm command {command} done',
-            final_state=ArmState.IDLE,
-            elapsed_sec=0.0,
-        )
-
         # 后台执行模式：立即返回成功，后续由 WaitArmIdle 轮询
         if not wait_result:
             self._dispatch_command(command)

@@ -28,12 +28,17 @@
                 target_yaw="{target_yaw}"
                 message="{last_error}"/>
 
-          <Fetch name="fetch"
-                 kfs_row="{kfs_row}"
-                 kfs_col="{kfs_col}"
-                 height_diff="{height_diff}"
-                 target_yaw="{target_yaw}"
-                 message="{last_error}"/>
+          <Sequence name="fetch">
+            <Fetch kfs_row="{kfs_row}"
+                   kfs_col="{kfs_col}"
+                   height_diff="{height_diff}"
+                   target_yaw="{target_yaw}"
+                   message="{last_error}"/>
+            <AresToolAction action="arm_grasp"
+                            arg0="{height_diff}"
+                            timeout_sec="30.0"
+                            message="{last_error}"/>
+          </Sequence>
 
           <Sequence name="PLAN_DONE">
             <SetDebugStatus execution_state="MISSION_SUCCESS" active_action="" last_error=""/>

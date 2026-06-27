@@ -5,10 +5,9 @@
 string action         # connector: prepare | grasp | dock_extend
                       # arm: arm_grasp | arm_get_body | arm_place_mid | arm_place_high
                       # arm_grasp 返回时机: 抓取完成后返回；存储由 MCU 自动继续。
-                      # arm_grasp 高度差联动: 调用者通过 args[0] 传入原始高度差（mm）。
+                      # arm_grasp 高度差映射: args[0] 传入原始高度差，本节点做简单映射：
                       #   正值 → MCU args[0]=200，负值 → MCU args[0]=-200。
-                      #   若原始值为 400，同步触发 suspension_control 抬升至 200mm，
-                      #   grasp 完成后自动复位到 30mm 正常行驶高度。
+                      #   悬挂逻辑由上层 Fetch 节点处理（仅 height_diff==400 时）。
 float32[4] args       # passthrough reserved floats. prepare: args[0]=length(m)
 ---
 # Response (returned when the action completes, or on error/timeout).

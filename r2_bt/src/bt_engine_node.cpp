@@ -21,14 +21,12 @@
 #include <utility>
 #include <vector>
 
-#include "r2_bt/nodes/actions/arm_action.hpp"
 #include "r2_bt/nodes/actions/ares_tool_action.hpp"
 #include "r2_bt/nodes/actions/meilin_fetch.hpp"
 #include "r2_bt/nodes/actions/meilin_move.hpp"
 #include "r2_bt/nodes/actions/move_to_pose.hpp"
 #include "r2_bt/nodes/actions/pop_next_meilin_segment.hpp"
 #include "r2_bt/nodes/actions/pop_next_segment.hpp"
-#include "r2_bt/nodes/actions/spear_action.hpp"
 #include "r2_bt/nodes/actions/suspension_control.hpp"
 #include "r2_bt/nodes/actions/wait_arm_idle.hpp"
 #include "r2_bt/nodes/conditions/is_segment_type.hpp"
@@ -90,9 +88,7 @@ public:
     factory_.registerNodeType<r2_bt::PopNextSegment>("PopNextSegment");
     factory_.registerNodeType<r2_bt::PopNextMeilinSegment>("PopNextMeilinSegment");
     factory_.registerNodeType<r2_bt::SuspensionControl>("SuspensionControl");
-    factory_.registerNodeType<r2_bt::SpearAction>("SpearAction");
     factory_.registerNodeType<r2_bt::AresToolAction>("AresToolAction");
-    factory_.registerNodeType<r2_bt::ArmAction>("ArmAction");
     factory_.registerNodeType<r2_bt::WaitArmIdle>("WaitArmIdle");
     factory_.registerNodeType<r2_bt::SwitchSegmentType>("SwitchSegmentType");
     factory_.registerNodeType<r2_bt::IsSegmentType>("IsSegmentType");

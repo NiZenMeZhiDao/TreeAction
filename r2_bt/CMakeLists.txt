@@ -23,7 +23,6 @@ find_package(yaml-cpp REQUIRED)
 #------------------------------------------------------------
 add_library(r2_bt_nodes SHARED
   src/nodes/ares_tool_action.cpp
-  src/nodes/arm_action.cpp
   src/nodes/is_segment_type.cpp
   src/nodes/is_string_empty.cpp
   src/nodes/is_string_non_empty.cpp
@@ -39,7 +38,6 @@ add_library(r2_bt_nodes SHARED
   src/nodes/go_to_pose.cpp
   src/nodes/place_object_placeholder.cpp
   src/nodes/select_final_target.cpp
-  src/nodes/spear_action.cpp
   src/nodes/suspension_control.cpp
   src/nodes/wait_arm_idle.cpp
   src/nodes/wait_for_int_signal.cpp

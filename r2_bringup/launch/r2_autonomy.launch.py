@@ -156,20 +156,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    arm_action_server = Node(
-        package='r2_hardware',
-        executable='arm_action_server',
-        name='arm_action_server',
-        output='screen',
-    )
-
-    spear_action_server = Node(
-        package='r2_hardware',
-        executable='spear_action_server',
-        name='spear_action_server',
-        output='screen',
-    )
-
     mf_buffer_node = Node(
         package='mf_action_planner',
         executable='mf_buffer_node',
@@ -229,8 +215,6 @@ def generate_launch_description():
         LogInfo(msg='=== R2 autonomy bringup: action servers ==='),
         motion_action_node,
         suspension_action_server,
-        arm_action_server,
-        spear_action_server,
         LogInfo(msg='=== R2 autonomy bringup: planner buffer ==='),
         mf_buffer_node,
         LogInfo(msg='=== R2 autonomy bringup: BT engine gated by /bt_engine/start_autonomy ==='),

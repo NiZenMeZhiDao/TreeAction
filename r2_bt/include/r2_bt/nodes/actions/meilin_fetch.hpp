@@ -2,8 +2,7 @@
 
 #include <action_of_motion_interfaces/action/move_to_pose.hpp>
 #include <behaviortree_cpp/action_node.h>
-#include <r2_interfaces/action/arm_action.hpp>
-#include <r2_interfaces/action/suspension_control.hpp>
+#include <r2_interfaces/srv/tool_action.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 
@@ -15,16 +14,14 @@ namespace r2_bt
 {
 
 /**
- * @brief 梅林区 Fetch 动作节点
+ * @brief 梅林区 Fetch 动作节点（一体化）
  *
  * 执行模型:
- *   onStart: 完成全部计算，立即发 MoveToPose(grasp) + Suspension(如需，并行)
- *   onRunning: 检查完成 → 发 ArmAction(grasp) → 等待完成 → 更新状态
- *   - MoveToPose 与 ArmAction 串行（先到位再抓）
- *   - 悬挂并行: SuspensionControl 与 MoveToPose 同时进行
+ *   1. MoveToPose(grasp)：移动到 KFS 抓取位姿
+ *   2. arm_grasp（内嵌 tool_node service 调用）：
+ *      传入 height_diff 作为 args[0]，tool_node 负责映射和悬挂（仅 400 时）
  *
- * 悬挂调用: 使用 rclcpp_action::Client<SuspensionControl> 异步发送 goal，
- *   参考 r2_hardware SuspensionActionServer（原 active_suspension_control 状态机）。
+ *   悬挂逻辑已从 Fetch 移至 tool_node。Fetch 层不再独立触发悬挂。
  */
 class MeilinFetch : public BT::StatefulActionNode
 {
@@ -40,52 +37,41 @@ public:
 private:
   BT::NodeStatus drive();
 
-  // ---- 微调 + 机械臂 Action Client ----
+  // ---- MoveToPose Action Client ----
   enum class ActionState { IDLE, ACTIVE, DONE, FAILED };
   void sendMoveToPoseGoal();
-  void sendArmGoal();
-  bool isActionDone(const std::string& name) const;
-  bool isActionActive(const std::string& name) const;
-  bool isActionFailed(const std::string& name) const;
-  void failActiveActionIfTimedOut(const std::string& name);
-  bool allActionsDone() const;
-  void resetActions();
+  bool isAlignDone() const;
+  bool isAlignFailed() const;
+  void failAlignIfTimedOut();
 
   ActionState align_state_ = ActionState::IDLE;
-  ActionState arm_state_   = ActionState::IDLE;
   std::string align_message_;
-  std::string arm_message_;
   std::mutex align_mutex_;
-  std::mutex arm_mutex_;
 
   using MoveToPoseAction = action_of_motion_interfaces::action::MoveToPose;
   using MoveToPoseGoalHandle = rclcpp_action::ClientGoalHandle<MoveToPoseAction>;
-  using ArmActionT = r2_interfaces::action::ArmAction;
-  using ArmGoalHandle = rclcpp_action::ClientGoalHandle<ArmActionT>;
 
   rclcpp_action::Client<MoveToPoseAction>::SharedPtr align_client_;
   std::shared_ptr<MoveToPoseGoalHandle> align_goal_handle_;
-  rclcpp_action::Client<ArmActionT>::SharedPtr arm_client_;
-  std::shared_ptr<ArmGoalHandle> arm_goal_handle_;
   std::chrono::steady_clock::time_point align_start_time_;
-  std::chrono::steady_clock::time_point arm_start_time_;
 
-  // ---- 悬挂 Action Client（真实异步调用）----
-  using SuspensionAction = r2_interfaces::action::SuspensionControl;
-  using SuspensionGoalHandle = rclcpp_action::ClientGoalHandle<SuspensionAction>;
+  // ---- tool_node Service Client（arm_grasp）----
+  using ToolActionSrv = r2_interfaces::srv::ToolAction;
 
-  rclcpp_action::Client<SuspensionAction>::SharedPtr suspension_client_;
-  std::shared_ptr<SuspensionGoalHandle> suspension_goal_handle_;
-  bool suspension_goal_done_ = false;
-  BT::NodeStatus suspension_result_ = BT::NodeStatus::FAILURE;
-  std::string suspension_message_;
-  std::mutex suspension_mutex_;
+  rclcpp::Client<ToolActionSrv>::SharedPtr tool_client_;
+  bool tool_request_sent_ = false;
+  bool tool_request_done_ = false;
+  BT::NodeStatus tool_result_ = BT::NodeStatus::FAILURE;
+  std::string tool_message_;
+  std::chrono::steady_clock::time_point tool_start_time_;
+  std::mutex tool_mutex_;
+  double tool_timeout_sec_ = 30.0;
 
-  /// 发送悬挂 goal（仅在 suspension_mode_ != 0 时调用）
-  void sendSuspensionGoal();
+  void sendToolGrasp();
+  void failToolIfTimedOut();
 
   // ---- 阶段 ----
-  enum class Phase { START, WAIT_PHASE1, START_ARM, WAIT_ARM, DONE };
+  enum class Phase { START, WAIT_ALIGN, START_TOOL, WAIT_TOOL, DONE };
   Phase phase_ = Phase::START;
 
   rclcpp::Node::SharedPtr node_;
@@ -99,10 +85,6 @@ private:
   // 内部计算
   double grasp_x_ = 0.0;
   double grasp_y_ = 0.0;
-  double abs_height_diff_ = 0.0;
-  int suspension_mode_ = 0;          // 0=无需, 3=MODE_DIRECT（Fetch 高度调整不走传感器状态机）
-  int suspension_direction_ = 0;
-  double suspension_target_height_ = 30.0;  // MODE_DIRECT 的绝对目标高度 (mm)
 };
 
 }  // namespace r2_bt

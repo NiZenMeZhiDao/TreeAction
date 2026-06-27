@@ -143,22 +143,6 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # ---- Action Server: 机械臂 ----
-        Node(
-            package='r2_hardware',
-            executable='arm_action_server',
-            name='arm_action_server',
-            output='screen',
-        ),
-
-        # ---- Action Server: 矛头机构 ----
-        Node(
-            package='r2_hardware',
-            executable='spear_action_server',
-            name='spear_action_server',
-            output='screen',
-        ),
-
         # ---- 上层: BT 决策引擎 ----
         Node(
             package='r2_bt',

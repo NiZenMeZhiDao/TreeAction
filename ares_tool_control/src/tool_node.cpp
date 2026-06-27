@@ -69,12 +69,8 @@ std::string valid_actions()
 
 }  // namespace
 
-<<<<<<< Updated upstream
 using r2_interfaces::srv::ToolAction;
 using r2_interfaces::action::SuspensionControl;
-=======
-using ares_tool_interfaces::srv::ToolAction;
->>>>>>> Stashed changes
 
 class AresToolNode : public rclcpp::Node {
       public:

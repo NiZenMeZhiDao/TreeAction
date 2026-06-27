@@ -55,7 +55,7 @@ class SuspensionActionServer(Node):
         self.H_LIFT_HIGH = self.DEFAULT_LIFT_HIGH
         self.H_INIT = 20.0
         self.HEIGHT_TOLERANCE = 20.0
-
+        self.down_high = 5
         # 状态变量
         self.current_state = State.IDLE
         self.target_height = 0.0
@@ -92,10 +92,10 @@ class SuspensionActionServer(Node):
         self.sub_sensor_dist = self.create_subscription(
             Float32MultiArray, 'sensor_distances', self.dist_cb, 10)
         self.sub_r0x0201 = self.create_subscription(
-            Float32MultiArray, 'r0x0201', self.hw_status_cb, 10)
+            Float32MultiArray, 'r0x0121', self.hw_status_cb, 10)
 
         # 控制发布
-        self.pub_action = self.create_publisher(Float32MultiArray, 't0x0102_action', 10)
+        self.pub_action = self.create_publisher(Float32MultiArray, 't0x0112_action', 10)
         self.pub_state = self.create_publisher(Int32, 'current_state', 10)
 
         # Action Server
@@ -338,11 +338,11 @@ class SuspensionActionServer(Node):
             self.v_distances_idx = [0, 1, 5, 4]
         elif self.current_direction == Direction.LEFT:
             self.v_wheels_idx = [3, 0, 2, 1]
-            self.v_pe_idx = [3, 2, 0, 1]
+            self.v_pe_idx = [1, 0, 2, 3]
             self.v_distances_idx = [2, 3, 7, 6]
         elif self.current_direction == Direction.RIGHT:
             self.v_wheels_idx = [1, 2, 0, 3]
-            self.v_pe_idx = [1, 0, 2, 3]
+            self.v_pe_idx = [3, 2, 0, 1]
             self.v_distances_idx = [6, 7, 3, 2]
         elif self.current_direction == Direction.BACKWARD:
             self.v_wheels_idx = [3, 2, 0, 1]
@@ -475,7 +475,7 @@ class SuspensionActionServer(Node):
 
         elif state == State.UP_6_SIDE_DOCK_RETRACT_REAR:
             cond = self._get_v_pe(v_2) == 1
-            up6_pe_stable = self._is_stable(cond, 'up6_pe', threshold=5)
+            up6_pe_stable = self._is_stable(cond, 'up6_pe', threshold=2)
             cond_h = False
             if up6_pe_stable:
                 self._set_v_wheel_height([v_2, v_3], -10.0)
@@ -500,7 +500,7 @@ class SuspensionActionServer(Node):
 
         # ---- 下台阶 ----
         elif state == State.DOWN_1_PREPARE:
-            
+            self.wheel_heights_target=[self.down_high] * 4 
             cond_pe = self._get_v_pe(v_0) == 0
             if self._is_stable(cond_pe, 'down1_pe', threshold=2):
                 if not self._height_latched:

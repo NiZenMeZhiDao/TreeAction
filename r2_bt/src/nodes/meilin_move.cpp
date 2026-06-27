@@ -1,6 +1,8 @@
 #include "r2_bt/nodes/actions/meilin_move.hpp"
 
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 #include "r2_bt/segment.hpp"
@@ -105,6 +107,39 @@ void MeilinMove::sendMoveToPoseGoal(const std::string& name,
                result.result && result.result->success)
                   ? ActionState::DONE
                   : ActionState::FAILED;
+    };
+  send_goal_options.feedback_callback =
+    [this, name](std::shared_ptr<MoveToPoseGoalHandle>,
+                 const std::shared_ptr<const MoveToPoseAction::Feedback> feedback) {
+      if (!feedback)
+      {
+        return;
+      }
+
+      std::ostringstream debug;
+      debug << std::fixed << std::setprecision(3)
+            << name
+            << " phase=" << feedback->phase
+            << " cur=(" << feedback->current_x << "," << feedback->current_y << ")"
+            << " yaw=" << std::setprecision(1) << feedback->current_yaw_deg << "deg"
+            << " target=(" << std::setprecision(3)
+            << feedback->target_x << "," << feedback->target_y << ")"
+            << " target_yaw=" << std::setprecision(1) << feedback->target_yaw_deg << "deg"
+            << " yaw_err=" << feedback->yaw_error_deg << "deg"
+            << " dist_err=" << std::setprecision(3) << feedback->distance_error
+            << " cmd=(" << feedback->cmd_vx << ","
+            << feedback->cmd_vy << ","
+            << feedback->cmd_wz << ")";
+
+      const std::string debug_msg = debug.str();
+      config().blackboard->set("move_feedback_debug", debug_msg);
+
+      RCLCPP_INFO_THROTTLE(
+        node_->get_logger(),
+        *node_->get_clock(),
+        1000,
+        "[MeilinMove feedback] %s",
+        debug_msg.c_str());
     };
 
   align_client_->async_send_goal(goal, send_goal_options);
@@ -434,7 +469,7 @@ BT::NodeStatus MeilinMove::onStart()
     double unused_yaw = 0.0;
     std::string dir_name;
     meilin_direction_yaw(from_row_, from_col_, move_row_, move_col_,
-                         unused_yaw, climb_direction_, dir_name);
+                         unused_yaw, climb_direction_, dir_name, target_yaw_);
     if (std::abs(suspension_offset) > 0.0)
     {
       RCLCPP_INFO(node_->get_logger(),
@@ -497,6 +532,7 @@ BT::NodeStatus MeilinMove::onStart()
   setOutput("message", std::string{});
   config().blackboard->set("active_action", std::string{"Move"});
   config().blackboard->set("execution_state", std::string{"ACTION_RUNNING"});
+  config().blackboard->set("move_feedback_debug", std::string{});
 
   return drive();
 }

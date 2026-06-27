@@ -457,7 +457,7 @@ BT::NodeStatus MeilinFetch::onStart()
     std::string dir_name;
     int unused_dir = 0;
     meilin_direction_yaw(current_row, current_col, kfs_row_, kfs_col_,
-                         unused_yaw, unused_dir, dir_name);
+                         unused_yaw, unused_dir, dir_name, target_yaw_);
 
     RCLCPP_INFO(node_->get_logger(),
                 "[Fetch] suspension: MODE_DIRECT height=%.0fmm (normal %.0f + diff %.0f)  approach=%s",

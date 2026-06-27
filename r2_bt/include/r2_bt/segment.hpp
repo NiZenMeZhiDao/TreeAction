@@ -99,20 +99,65 @@ inline bool meilin_adjacent(int row_a, int col_a, int row_b, int col_b)
   return std::abs(row_a - row_b) + std::abs(col_a - col_b) == 1;
 }
 
-/// 计算移动方向 yaw (从 from → to)
-/// @return {yaw, direction_enum(0=FWD,1=LEFT,2=RIGHT), direction_name}
-/// 方向是相对车的方向
+/// 将 yaw 转成悬挂使用的车体相对方向。
+/// @return direction_enum(0=FWD,1=LEFT,2=RIGHT,3=BACKWARD)
+inline bool meilin_direction_from_yaw(double yaw, int& direction,
+                                      std::string& direction_name,
+                                      double tolerance = 0.12)
+{
+  const double normalized = meilin_normalize_angle(yaw);
+  if (meilin_yaw_close(normalized, 0.0, tolerance))
+  {
+    direction = 0;
+    direction_name = "forward";
+    return true;
+  }
+  if (meilin_yaw_close(normalized, M_PI / 2.0, tolerance))
+  {
+    direction = 1;
+    direction_name = "left";
+    return true;
+  }
+  if (meilin_yaw_close(normalized, -M_PI / 2.0, tolerance))
+  {
+    direction = 2;
+    direction_name = "right";
+    return true;
+  }
+  if (meilin_yaw_close(normalized, M_PI, tolerance))
+  {
+    direction = 3;
+    direction_name = "backward";
+    return true;
+  }
+  direction_name = "invalid";
+  return false;
+}
+
+/// 计算移动方向 yaw (从 from → to)，并按 reference_yaw 转成车体相对方向。
+/// reference_yaw 通常来自 /mf_action_seq 的 arg4；默认 0 保持旧调用行为。
+/// @return {yaw, direction_enum(0=FWD,1=LEFT,2=RIGHT,3=BACKWARD), direction_name}
 inline bool meilin_direction_yaw(
     int from_row, int from_col, int to_row, int to_col,
-    double& yaw, int& direction, std::string& direction_name)
+    double& yaw, int& direction, std::string& direction_name,
+    double reference_yaw = 0.0)
 {
   const int d_row = to_row - from_row;
   const int d_col = to_col - from_col;
-  if (d_row == 1 && d_col == 0)       { yaw = 0.0;             direction = 0; direction_name = "forward";  return true; }
-  if (d_row == 0 && d_col == 1)       { yaw = M_PI / 2.0;      direction = 1; direction_name = "left";     return true; }
-  if (d_row == 0 && d_col == -1)      { yaw = -M_PI / 2.0;     direction = 2; direction_name = "right";    return true; }
-  if (d_row == -1 && d_col == 0)      { yaw = M_PI;            direction = -1; direction_name = "backward"; return true; }
-  return false;
+  double move_yaw = 0.0;
+  if (d_row == 1 && d_col == 0)       { move_yaw = 0.0; }
+  else if (d_row == 0 && d_col == 1)  { move_yaw = M_PI / 2.0; }
+  else if (d_row == 0 && d_col == -1) { move_yaw = -M_PI / 2.0; }
+  else if (d_row == -1 && d_col == 0) { move_yaw = M_PI; }
+  else
+  {
+    direction_name = "invalid";
+    return false;
+  }
+
+  yaw = move_yaw;
+  const double relative_yaw = meilin_normalize_angle(move_yaw - reference_yaw);
+  return meilin_direction_from_yaw(relative_yaw, direction, direction_name);
 }
 
 /// 计算抓取位置（Fetch 用）
@@ -129,7 +174,7 @@ inline void meilin_calculate_grasp_position(
   int direction = 0;
   std::string direction_name;
   meilin_direction_yaw(from_row, from_col, kfs_row, kfs_col,
-                       expected_yaw, direction, direction_name);
+                       expected_yaw, direction, direction_name, yaw);
 
   const int unit_x = kfs_row - from_row;
   const int unit_y = kfs_col - from_col;

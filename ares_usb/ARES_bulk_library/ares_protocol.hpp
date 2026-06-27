@@ -19,8 +19,8 @@ constexpr uint8_t HEARTBEAT_REQUEST_ID = 0xFF;
 constexpr std::chrono::milliseconds HEARTBEAT_INTERVAL{3}; // 10ms
 
 constexpr size_t USB_FS_MPS = 64;
-constexpr uint16_t DEFAULT_VID = 0x1209;
-constexpr uint16_t DEFAULT_PID = 0x0001;
+constexpr uint16_t VID = 0x1209;
+constexpr uint16_t PID = 0x0001;
 constexpr uint8_t EP_IN = 0x81;
 constexpr uint8_t EP_OUT = 0x01;
 constexpr int USB_TIMEOUT_MS = 1000; // USB 操作超时时间
@@ -70,7 +70,7 @@ using ErrorCallback = std::function<void(uint8_t request_id_or_data_id, uint16_t
 
 class Protocol {
 public:
-    explicit Protocol(uint16_t pid = DEFAULT_PID, uint16_t vid = DEFAULT_VID);
+    Protocol();
     ~Protocol();
 
     // 初始化并连接 USB 设备
@@ -79,7 +79,6 @@ public:
     void disconnect();
     // 检查连接状态
     bool is_connected() const;
-    uint16_t pid() const;
 
     // 注册同步帧回调
     void register_sync_callback(SyncCallback cb);
@@ -115,8 +114,6 @@ private:
     void heartbeat_loop(); // 新增：心跳线程函数
 
     // {{ edit_1: 添加缺失的成员变量声明 }}
-    uint16_t vid_;
-    uint16_t pid_;
     libusb_context* usb_ctx_ = nullptr;
     libusb_device_handle* dev_handle_ = nullptr;
     std::thread read_thread_;

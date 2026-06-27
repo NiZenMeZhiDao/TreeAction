@@ -4,13 +4,19 @@
 #include <behaviortree_cpp/loggers/groot2_publisher.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nlohmann/json.hpp>
+#include <r2_interfaces/action/arm_action.hpp>
+#include <r2_interfaces/action/spear_action.hpp>
+#include <r2_interfaces/action/suspension_control.hpp>
 #include <r2_interfaces/srv/get_action_seq.hpp>
+#include <r2_interfaces/srv/start_autonomy.hpp>
+#include <r2_interfaces/srv/tool_action.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -23,14 +29,19 @@
 
 #include "r2_bt/nodes/actions/arm_action.hpp"
 #include "r2_bt/nodes/actions/ares_tool_action.hpp"
+#include "r2_bt/nodes/actions/go_to_pose.hpp"
 #include "r2_bt/nodes/actions/meilin_fetch.hpp"
 #include "r2_bt/nodes/actions/meilin_move.hpp"
 #include "r2_bt/nodes/actions/move_to_pose.hpp"
+#include "r2_bt/nodes/actions/place_object_placeholder.hpp"
 #include "r2_bt/nodes/actions/pop_next_meilin_segment.hpp"
 #include "r2_bt/nodes/actions/pop_next_segment.hpp"
+#include "r2_bt/nodes/actions/select_final_target.hpp"
 #include "r2_bt/nodes/actions/spear_action.hpp"
 #include "r2_bt/nodes/actions/suspension_control.hpp"
 #include "r2_bt/nodes/actions/wait_arm_idle.hpp"
+#include "r2_bt/nodes/actions/wait_for_int_signal.hpp"
+#include "r2_bt/nodes/actions/wait_seconds.hpp"
 #include "r2_bt/nodes/conditions/is_segment_type.hpp"
 #include "r2_bt/nodes/conditions/is_string_empty.hpp"
 #include "r2_bt/nodes/conditions/is_string_non_empty.hpp"
@@ -55,6 +66,10 @@ public:
     declare_parameter("buffer_service", "/get_action_seq");
     declare_parameter("tree_file", "full_match.xml");
     declare_parameter("match_config", "");
+    declare_parameter("autostart", false);
+    declare_parameter("default_region", "full");
+    declare_parameter("require_map_relocalization", true);
+    declare_parameter("localization_timeout_sec", 1.0);
 
     // === 梅林区参数 ===
     declare_parameter("meilin_side", "blue");
@@ -81,19 +96,36 @@ public:
     buffer_service_ = get_parameter("buffer_service").as_string();
     tree_file_ = get_parameter("tree_file").as_string();
     match_config_ = get_parameter("match_config").as_string();
+    autostart_ = get_parameter("autostart").as_bool();
+    requested_region_ = normalize_region(get_parameter("default_region").as_string());
+    if (requested_region_.empty())
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Invalid default_region provided. Falling back to full.");
+      requested_region_ = "full";
+    }
+    require_map_relocalization_ =
+        get_parameter("require_map_relocalization").as_bool();
+    localization_timeout_sec_ =
+        get_parameter("localization_timeout_sec").as_double();
     load_meilin_parameters();
 
     // === 注册 BT 节点 ===
     factory_.registerNodeType<r2_bt::MoveToPose>("MoveToPose");
+    factory_.registerNodeType<r2_bt::GoToPose>("GoToPose");
     factory_.registerNodeType<r2_bt::MeilinMove>("Move");
     factory_.registerNodeType<r2_bt::MeilinFetch>("Fetch");
+    factory_.registerNodeType<r2_bt::PlaceObjectPlaceholder>("PlaceObjectPlaceholder");
     factory_.registerNodeType<r2_bt::PopNextSegment>("PopNextSegment");
     factory_.registerNodeType<r2_bt::PopNextMeilinSegment>("PopNextMeilinSegment");
+    factory_.registerNodeType<r2_bt::SelectFinalTarget>("SelectFinalTarget");
     factory_.registerNodeType<r2_bt::SuspensionControl>("SuspensionControl");
     factory_.registerNodeType<r2_bt::SpearAction>("SpearAction");
     factory_.registerNodeType<r2_bt::AresToolAction>("AresToolAction");
     factory_.registerNodeType<r2_bt::ArmAction>("ArmAction");
     factory_.registerNodeType<r2_bt::WaitArmIdle>("WaitArmIdle");
+    factory_.registerNodeType<r2_bt::WaitForIntSignal>("WaitForIntSignal");
+    factory_.registerNodeType<r2_bt::WaitSeconds>("WaitSeconds");
     factory_.registerNodeType<r2_bt::SwitchSegmentType>("SwitchSegmentType");
     factory_.registerNodeType<r2_bt::IsSegmentType>("IsSegmentType");
     factory_.registerNodeType<r2_bt::IsStringEmpty>("IsStringEmpty");
@@ -102,7 +134,7 @@ public:
     factory_.registerNodeType<r2_bt::ForEachSegment>("ForEachSegment");
     factory_.registerNodeType<r2_bt::RetrySegment>("RetrySegment");
     factory_.registerNodeType<r2_bt::SetDebugStatus>("SetDebugStatus");
-    // factory_.registerNodeType<BT::RepeatNode>("Repeat");
+    factory_.registerNodeType<BT::RepeatNode>("Repeat");
 
     // === 初始化 blackboard ===
     blackboard_ = BT::Blackboard::create();
@@ -183,6 +215,36 @@ public:
 
     // === 暂存区 Service Client（替代直接订阅 /mf_action_seq） ===
     buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
+    suspension_client_ =
+        rclcpp_action::create_client<r2_interfaces::action::SuspensionControl>(
+            get_node_base_interface(),
+            get_node_graph_interface(),
+            get_node_logging_interface(),
+            get_node_waitables_interface(),
+            "suspension_control");
+    arm_client_ =
+        rclcpp_action::create_client<r2_interfaces::action::ArmAction>(
+            get_node_base_interface(),
+            get_node_graph_interface(),
+            get_node_logging_interface(),
+            get_node_waitables_interface(),
+            "arm_action");
+    spear_client_ =
+        rclcpp_action::create_client<r2_interfaces::action::SpearAction>(
+            get_node_base_interface(),
+            get_node_graph_interface(),
+            get_node_logging_interface(),
+            get_node_waitables_interface(),
+            "spear_action");
+
+    tool_service_name_ = "/ares_tool_node/tool_action";
+    (void)blackboard_->get("prepare_ares_tool_service_name", tool_service_name_);
+    tool_client_ = create_client<r2_interfaces::srv::ToolAction>(tool_service_name_);
+    start_service_ = create_service<r2_interfaces::srv::StartAutonomy>(
+        "/bt_engine/start_autonomy",
+        std::bind(&BtEngineNode::start_autonomy_callback, this,
+                  std::placeholders::_1, std::placeholders::_2));
+    status_pub_ = create_publisher<std_msgs::msg::String>("/bt_engine/status", 10);
 
     // === 订阅 ===
     segment_sub_ = create_subscription<std_msgs::msg::String>(
@@ -197,7 +259,21 @@ public:
         std::chrono::milliseconds(500),
         std::bind(&BtEngineNode::buffer_poll_callback, this));
 
+    status_timer_ = create_wall_timer(
+        std::chrono::milliseconds(500),
+        std::bind(&BtEngineNode::publish_status, this));
+
+    if (autostart_)
+    {
+      tree_file_ = tree_file_for_region(requested_region_);
+    }
     build_fixed_tree();
+
+    autonomy_enabled_ = autostart_;
+    active_region_ = autostart_ ? requested_region_ : "idle";
+    phase_ = autostart_ ? "RUNNING" : "IDLE";
+    blackboard_->set("execution_state",
+                     autostart_ ? std::string{"RUNNING"} : std::string{"IDLE"});
 
     auto tick_period = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::duration<double>(1.0 / tick_freq));
@@ -206,10 +282,12 @@ public:
 
     RCLCPP_INFO(get_logger(),
                 "BT Engine started: tick=%.1fHz, groot2_port=%u, segment_topic=%s, "
-                "buffer_service=%s, meilin_pose_topic=%s, tree_file=%s, match_config=%s",
+                "buffer_service=%s, meilin_pose_topic=%s, tree_file=%s, match_config=%s, "
+                "autostart=%s, default_region=%s",
                 tick_freq, groot2_port_, segment_topic_.c_str(),
                 buffer_service_.c_str(), meilin_pose_topic_.c_str(), tree_file_.c_str(),
-                match_config_.empty() ? "(none)" : match_config_.c_str());
+                match_config_.empty() ? "(none)" : match_config_.c_str(),
+                autostart_ ? "true" : "false", requested_region_.c_str());
   }
 
   ~BtEngineNode() override
@@ -222,6 +300,223 @@ public:
   }
 
 private:
+  // =========================================================================
+  // 启动门控 / 分区域执行 / 状态发布
+  // =========================================================================
+
+  static std::string normalize_region(const std::string& region)
+  {
+    if (region.empty()) return "full";
+    if (region == "full" || region == "prepare" ||
+        region == "meilin" || region == "final")
+    {
+      return region;
+    }
+    return "";
+  }
+
+  static std::string tree_file_for_region(const std::string& region)
+  {
+    if (region == "prepare") return "prepare_area.xml";
+    if (region == "meilin") return "meilin_stage.xml";
+    if (region == "final") return "final_area.xml";
+    return "full_match.xml";
+  }
+
+  bool meilin_plan_ready() const
+  {
+    r2_bt::SegmentQueuePtr queue;
+    if (!blackboard_->get("segment_queue", queue) || !queue)
+    {
+      return false;
+    }
+    std::unique_lock<std::mutex> lock(queue->mtx);
+    return !queue->items.empty();
+  }
+
+  static void add_missing_if(bool condition,
+                             const std::string& name,
+                             std::vector<std::string>& missing)
+  {
+    if (condition)
+    {
+      missing.push_back(name);
+    }
+  }
+
+  std::vector<std::string> collect_missing_dependencies(const std::string& region)
+  {
+    std::vector<std::string> missing;
+
+    const bool needs_match_config =
+        region == "full" || region == "prepare" || region == "final";
+    const bool needs_meilin_plan = region == "full" || region == "meilin";
+    const bool needs_meilin_actions = region == "full" || region == "meilin";
+    const bool needs_tool = region == "full" || region == "prepare";
+
+    add_missing_if(needs_match_config && match_config_.empty(),
+                   "match_config", missing);
+    add_missing_if(needs_meilin_plan && !meilin_plan_ready(),
+                   "meilin_plan", missing);
+
+    add_missing_if(!move_to_pose_client_ ||
+                   !move_to_pose_client_->action_server_is_ready(),
+                   "/move_to_pose", missing);
+    add_missing_if(needs_meilin_actions &&
+                   (!suspension_client_ ||
+                    !suspension_client_->action_server_is_ready()),
+                   "/suspension_control", missing);
+    add_missing_if(needs_meilin_actions &&
+                   (!arm_client_ || !arm_client_->action_server_is_ready()),
+                   "/arm_action", missing);
+    add_missing_if(needs_meilin_actions &&
+                   (!spear_client_ || !spear_client_->action_server_is_ready()),
+                   "/spear_action", missing);
+    add_missing_if(needs_tool &&
+                   (!tool_client_ || !tool_client_->service_is_ready()),
+                   tool_service_name_, missing);
+    add_missing_if(needs_meilin_plan &&
+                   (!buffer_client_ || !buffer_client_->service_is_ready()),
+                   buffer_service_, missing);
+
+    const double age_sec = localization_age_sec();
+    add_missing_if(!latest_localization_received_ ||
+                   age_sec < 0.0 ||
+                   age_sec > localization_timeout_sec_,
+                   meilin_pose_topic_ + ":fresh_pose", missing);
+    add_missing_if(require_map_relocalization_ &&
+                   latest_localization_received_ &&
+                   latest_localization_frame_ != "map",
+                   meilin_pose_topic_ + ":map_frame", missing);
+
+    return missing;
+  }
+
+  double localization_age_sec()
+  {
+    if (!latest_localization_received_)
+    {
+      return -1.0;
+    }
+    return now().seconds() - latest_localization_update_sec_;
+  }
+
+  static std::string join_missing(const std::vector<std::string>& missing)
+  {
+    std::ostringstream oss;
+    for (size_t i = 0; i < missing.size(); ++i)
+    {
+      if (i > 0) oss << ", ";
+      oss << missing[i];
+    }
+    return oss.str();
+  }
+
+  void reset_runtime_blackboard_for_start()
+  {
+    blackboard_->set("current_segment_index", -1);
+    blackboard_->set("segment_type", std::string{});
+    blackboard_->set("segment_debug_name", std::string{});
+    blackboard_->set("active_action", std::string{});
+    blackboard_->set("retry_count", 0);
+    blackboard_->set("last_error", std::string{});
+    blackboard_->set("execution_state", std::string{"RUNNING"});
+
+    blackboard_->set("meilin_current_row", meilin_initial_row_);
+    blackboard_->set("meilin_current_col", meilin_initial_col_);
+    blackboard_->set("meilin_current_height", meilin_initial_height_);
+    blackboard_->set("meilin_current_yaw", meilin_initial_yaw_);
+    blackboard_->set("meilin_pose_is_cell_center", true);
+    blackboard_->set("meilin_suspension_offset", 0.0);
+  }
+
+  void start_autonomy_callback(
+      const std::shared_ptr<r2_interfaces::srv::StartAutonomy::Request> request,
+      std::shared_ptr<r2_interfaces::srv::StartAutonomy::Response> response)
+  {
+    if (autonomy_enabled_)
+    {
+      response->success = false;
+      response->message = "Autonomy is already running: region=" + active_region_;
+      return;
+    }
+
+    const std::string region = normalize_region(request->region);
+    if (region.empty())
+    {
+      response->success = false;
+      response->message =
+          "Invalid region. Expected one of: full, prepare, meilin, final.";
+      return;
+    }
+
+    requested_region_ = region;
+    const auto missing = collect_missing_dependencies(region);
+    if (!missing.empty())
+    {
+      phase_ = "NOT_READY";
+      response->success = false;
+      response->message = "Missing dependencies: " + join_missing(missing);
+      blackboard_->set("last_error", response->message);
+      blackboard_->set("execution_state", std::string{"NOT_READY"});
+      publish_status();
+      RCLCPP_WARN(get_logger(), "Autonomy start rejected for region=%s: %s",
+                  region.c_str(), response->message.c_str());
+      return;
+    }
+
+    tree_file_ = tree_file_for_region(region);
+    active_region_ = region;
+    reset_runtime_blackboard_for_start();
+    build_fixed_tree();
+    autonomy_enabled_ = true;
+    phase_ = "RUNNING";
+
+    response->success = true;
+    response->message = "Autonomy started: region=" + region +
+                        ", tree_file=" + tree_file_;
+    publish_status();
+    RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
+  }
+
+  void publish_status()
+  {
+    if (!status_pub_)
+    {
+      return;
+    }
+
+    const std::string region =
+        active_region_ == "idle" ? requested_region_ : active_region_;
+    const auto missing = collect_missing_dependencies(region);
+
+    std::string execution_state;
+    std::string active_action;
+    std::string segment_debug_name;
+    std::string last_error;
+    (void)blackboard_->get("execution_state", execution_state);
+    (void)blackboard_->get("active_action", active_action);
+    (void)blackboard_->get("segment_debug_name", segment_debug_name);
+    (void)blackboard_->get("last_error", last_error);
+
+    nlohmann::json status;
+    status["phase"] = phase_;
+    status["region"] = region;
+    status["ready"] = missing.empty();
+    status["autonomy_enabled"] = autonomy_enabled_;
+    status["execution_state"] = execution_state;
+    status["active_action"] = active_action;
+    status["segment_debug_name"] = segment_debug_name;
+    status["last_error"] = last_error;
+    status["missing_dependencies"] = missing;
+    status["localization_frame"] = latest_localization_frame_;
+    status["localization_age_sec"] = localization_age_sec();
+
+    std_msgs::msg::String msg;
+    msg.data = status.dump();
+    status_pub_->publish(msg);
+  }
+
   // =========================================================================
   // 字符串命令 → uint8 常量映射
   // =========================================================================
@@ -321,7 +616,9 @@ private:
 
     const std::vector<std::string> required_sections = {
       "prepare.spear_prep", "prepare.ares_tool",
-      "final.move2", "final.final_move2", "final.place_mid", "final.place_high", "final.finish"
+      "final.standby",
+      "final.targets.2_left", "final.targets.2_mid", "final.targets.2_right",
+      "final.targets.3_left", "final.targets.3_mid", "final.targets.3_right"
     };
     for (const auto& path : required_sections)
     {
@@ -372,46 +669,54 @@ private:
       blackboard_->set("prepare_ares_tool_arg1", ares_tool.value("arg1", 0.0));
       blackboard_->set("prepare_ares_tool_arg2", ares_tool.value("arg2", 0.0));
       blackboard_->set("prepare_ares_tool_arg3", ares_tool.value("arg3", 0.0));
-      RCLCPP_INFO(get_logger(), "PrepareArea params loaded: move + ares_tool service");
+      blackboard_->set("prepare_deck_topic",
+                       p.value("deck_topic", std::string{"/aruco_comm/tx_id"}));
+      blackboard_->set("prepare_build_signal", p.value("build_signal", 8));
+      blackboard_->set("prepare_build_timeout_sec",
+                       p.value("build_timeout_sec", 0.0));
+      RCLCPP_INFO(get_logger(),
+                  "PrepareArea params loaded: move + deck trigger + ares_tool service");
     }
 
     // FinalArea 参数
     {
       const auto& f = cfg["final"];
-      const auto& move2 = f["move2"];
-      blackboard_->set("final_move2_target_x", move2.value("target_x", 0.0));
-      blackboard_->set("final_move2_target_y", move2.value("target_y", 0.0));
-      blackboard_->set("final_move2_target_yaw", move2.value("target_yaw", 0.0));
-      blackboard_->set("final_move2_max_speed", move2.value("max_speed", 0.5));
-      blackboard_->set("final_move2_timeout_sec", move2.value("timeout_sec", 30.0));
+      blackboard_->set("final_deck_topic",
+                       f.value("deck_topic", std::string{"/aruco_comm/tx_id"}));
+      blackboard_->set("final_place_signal", f.value("place_signal", 7));
+      blackboard_->set("final_command_timeout_sec",
+                       f.value("command_timeout_sec", 0.0));
+      blackboard_->set("final_place_signal_timeout_sec",
+                       f.value("place_signal_timeout_sec", 0.0));
+      blackboard_->set("final_post_place_wait_sec",
+                       f.value("post_place_wait_sec", 1.0));
 
-      const auto& final_move2 = f["final_move2"];
-      blackboard_->set("final_final_move2_target_x", final_move2.value("target_x", 0.0));
-      blackboard_->set("final_final_move2_target_y", final_move2.value("target_y", 0.0));
-      blackboard_->set("final_final_move2_target_yaw", final_move2.value("target_yaw", 0.0));
-      blackboard_->set("final_final_move2_max_speed", final_move2.value("max_speed", 0.5));
-      blackboard_->set("final_final_move2_timeout_sec", final_move2.value("timeout_sec", 30.0));
+      const auto& standby = f["standby"];
+      blackboard_->set("final_standby_target_x", standby.value("target_x", 0.0));
+      blackboard_->set("final_standby_target_y", standby.value("target_y", 0.0));
+      blackboard_->set("final_standby_target_yaw", standby.value("target_yaw", 0.0));
+      blackboard_->set("final_standby_timeout_sec", standby.value("timeout_sec", 60.0));
 
-      const auto& place_mid = f["place_mid"];
-      blackboard_->set("final_place_mid_arm_command",
-                       parse_arm_command_str(place_mid.value("arm_command", "place_mid")));
-      blackboard_->set("final_place_mid_timeout_sec", place_mid.value("timeout_sec", 30.0));
+      const auto load_final_target =
+          [this](const nlohmann::json& targets, const std::string& name) {
+            const auto& target = targets.at(name);
+            const std::string prefix = "final_target_" + name + "_";
+            blackboard_->set(prefix + "target_x", target.value("target_x", 0.0));
+            blackboard_->set(prefix + "target_y", target.value("target_y", 0.0));
+            blackboard_->set(prefix + "target_yaw", target.value("target_yaw", 0.0));
+            blackboard_->set(prefix + "max_speed", target.value("max_speed", 0.4));
+            blackboard_->set(prefix + "pid_profile", target.value("pid_profile", 1));
+            blackboard_->set(prefix + "timeout_sec", target.value("timeout_sec", 30.0));
+          };
 
-      const auto& place_high = f["place_high"];
-      blackboard_->set("final_place_high_arm_command",
-                       parse_arm_command_str(place_high.value("arm_command", "place_high")));
-      blackboard_->set("final_place_high_timeout_sec", place_high.value("timeout_sec", 30.0));
-
-      const auto& finish = f["finish"];
-      blackboard_->set("final_finish_arm_command",
-                       parse_arm_command_str(finish.value("arm_command", "idle")));
-      blackboard_->set("final_finish_timeout_sec", finish.value("timeout_sec", 30.0));
-      blackboard_->set("final_finish_suspension_mode", finish.value("suspension_mode", 3));
-      blackboard_->set("final_finish_suspension_direction", finish.value("suspension_direction", 0));
-      blackboard_->set("final_finish_suspension_height", finish.value("suspension_height", 30.0));
-      blackboard_->set("final_finish_suspension_timeout_sec",
-                       finish.value("suspension_timeout_sec", 10.0));
-      RCLCPP_INFO(get_logger(), "FinalArea params loaded: 5 segments");
+      const auto& targets = f["targets"];
+      load_final_target(targets, "2_left");
+      load_final_target(targets, "2_mid");
+      load_final_target(targets, "2_right");
+      load_final_target(targets, "3_left");
+      load_final_target(targets, "3_mid");
+      load_final_target(targets, "3_right");
+      RCLCPP_INFO(get_logger(), "FinalArea params loaded: standby + deck controlled targets");
     }
 
     blackboard_->set("execution_state", std::string{"CONFIG_LOADED"});
@@ -706,11 +1011,14 @@ private:
   void meilin_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
     const auto& pose = msg->pose;
+    latest_localization_received_ = true;
+    latest_localization_frame_ = msg->header.frame_id;
+    latest_localization_update_sec_ = now().seconds();
     blackboard_->set("meilin_pose_received", true);
     blackboard_->set("meilin_pose_x", pose.position.x);
     blackboard_->set("meilin_pose_y", pose.position.y);
     blackboard_->set("meilin_pose_yaw", yaw_from_quaternion(pose.orientation));
-    blackboard_->set("meilin_pose_last_update_sec", now().seconds());
+    blackboard_->set("meilin_pose_last_update_sec", latest_localization_update_sec_);
   }
 
   // =========================================================================
@@ -761,8 +1069,9 @@ private:
   {
     // 只在等待新计划时才拉取暂存区
     std::string state;
-    blackboard_->get("execution_state", state);
-    if (state != "WAITING_MF_ACTION_SEQ" && state != "WAITING_PLAN" && state != "IDLE")
+    (void)blackboard_->get("execution_state", state);
+    if (state != "WAITING_MF_ACTION_SEQ" && state != "WAITING_PLAN" &&
+        state != "IDLE" && state != "NOT_READY")
       return;
 
     if (!buffer_client_->service_is_ready())
@@ -1050,6 +1359,11 @@ private:
 
   void tick_callback()
   {
+    if (!autonomy_enabled_)
+    {
+      return;
+    }
+
     if (current_tree_)
     {
       blackboard_->set("ros_node", shared_from_this());
@@ -1057,6 +1371,13 @@ private:
       if (status == BT::NodeStatus::FAILURE)
       {
         blackboard_->set("execution_state", std::string{"MISSION_FAILED"});
+        autonomy_enabled_ = false;
+        phase_ = "FAILED";
+      }
+      else if (status == BT::NodeStatus::SUCCESS)
+      {
+        autonomy_enabled_ = false;
+        phase_ = "COMPLETED";
       }
     }
   }
@@ -1076,18 +1397,37 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr meilin_pose_sub_;
   rclcpp::TimerBase::SharedPtr tick_timer_;
   rclcpp::TimerBase::SharedPtr buffer_poll_timer_;
+  rclcpp::TimerBase::SharedPtr status_timer_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
+  rclcpp::Service<r2_interfaces::srv::StartAutonomy>::SharedPtr start_service_;
 
   // 暂存区 Service Client
   rclcpp::Client<r2_interfaces::srv::GetActionSeq>::SharedPtr buffer_client_;
+  rclcpp::Client<r2_interfaces::srv::ToolAction>::SharedPtr tool_client_;
   rclcpp_action::Client<MoveToPoseAction>::SharedPtr move_to_pose_client_;
+  rclcpp_action::Client<r2_interfaces::action::SuspensionControl>::SharedPtr
+      suspension_client_;
+  rclcpp_action::Client<r2_interfaces::action::ArmAction>::SharedPtr arm_client_;
+  rclcpp_action::Client<r2_interfaces::action::SpearAction>::SharedPtr spear_client_;
 
   unsigned groot2_port_ = 1667;
   std::string segment_topic_;
   std::string mf_action_topic_;
   std::string buffer_service_;
+  std::string tool_service_name_;
   std::string meilin_pose_topic_;
   std::string tree_file_;
   std::string match_config_;
+  bool autostart_ = false;
+  bool autonomy_enabled_ = false;
+  bool require_map_relocalization_ = true;
+  std::string requested_region_ = "full";
+  std::string active_region_ = "idle";
+  std::string phase_ = "INITIALIZING";
+  double localization_timeout_sec_ = 1.0;
+  bool latest_localization_received_ = false;
+  std::string latest_localization_frame_;
+  double latest_localization_update_sec_ = 0.0;
 
   // 梅林区参数
   std::string meilin_side_ = "blue";

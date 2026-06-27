@@ -45,7 +45,15 @@
         </RetrySegment>
       </Sequence>
 
-      <Sequence name="PREPARE_02_WAIT_ARES_TOOL">
+      <Sequence name="PREPARE_02_WAIT_BUILD_SIGNAL">
+        <WaitForIntSignal signal_topic="{prepare_deck_topic}"
+                          expected_value="{prepare_build_signal}"
+                          timeout_sec="{prepare_build_timeout_sec}"
+                          received_value="{prepare_received_signal}"
+                          message="{last_error}"/>
+      </Sequence>
+
+      <Sequence name="PREPARE_03_WAIT_ARES_TOOL">
         <RetrySegment num_attempts="3">
           <AresToolAction action="{prepare_ares_tool_action}"
                           service_name="{prepare_ares_tool_service_name}"
@@ -104,77 +112,100 @@
     </ForEachSegment>
   </BehaviorTree>
 
-  <!-- ====== 竞技区：固定 5 段（不使用 Repeat / PopNextSegment / SwitchSegmentType）====== -->
+  <!-- ====== 竞技区：Nav2 到待命位后循环等待 deck 指令 ====== -->
   <BehaviorTree ID="FinalArea">
     <Sequence>
 
-      <Sequence name="FINAL_01_MOVE2">
+      <Sequence name="FINAL_00_NAV2_TO_STANDBY">
         <RetrySegment num_attempts="3">
-          <MoveToPose target_x="{final_move2_target_x}"
-                      target_y="{final_move2_target_y}"
-                      target_yaw="{final_move2_target_yaw}"
-                      max_speed="{final_move2_max_speed}"
-                      pid_profile="{final_move2_pid_profile}"
-                      timeout_sec="{final_move2_timeout_sec}"
-                      error_msg="{last_error}"/>
+          <GoToPose target_x="{final_standby_target_x}"
+                    target_y="{final_standby_target_y}"
+                    target_yaw="{final_standby_target_yaw}"
+                    timeout_sec="{final_standby_timeout_sec}"
+                    message="{last_error}"/>
         </RetrySegment>
       </Sequence>
 
-      <Sequence name="FINAL_02_FINAL_MOVE2">
-        <RetrySegment num_attempts="3">
-          <MoveToPose target_x="{final_final_move2_target_x}"
-                      target_y="{final_final_move2_target_y}"
-                      target_yaw="{final_final_move2_target_yaw}"
-                      max_speed="{final_final_move2_max_speed}"
-                      pid_profile="{final_final_move2_pid_profile}"
-                      timeout_sec="{final_final_move2_timeout_sec}"
-                      error_msg="{last_error}"/>
-        </RetrySegment>
-      </Sequence>
+      <Repeat num_cycles="-1">
+        <Sequence name="FINAL_LOOP">
 
-      <Sequence name="FINAL_03_PLACE_MID">
-        <RetrySegment num_attempts="3">
-          <Sequence>
-            <WaitArmIdle timeout_sec="{final_place_mid_timeout_sec}"
-                         message="{last_error}"/>
-            <ArmAction command="{final_place_mid_arm_command}"
-                       wait_result="true"
-                       timeout_sec="{final_place_mid_timeout_sec}"
-                       message="{last_error}"/>
-          </Sequence>
-        </RetrySegment>
-      </Sequence>
+          <WaitForIntSignal signal_topic="{final_deck_topic}"
+                            expected_values="1,2,3,4,5,6"
+                            timeout_sec="{final_command_timeout_sec}"
+                            received_value="{final_command}"
+                            message="{last_error}"/>
 
-      <Sequence name="FINAL_04_PLACE_HIGH">
-        <RetrySegment num_attempts="3">
-          <Sequence>
-            <WaitArmIdle timeout_sec="{final_place_high_timeout_sec}"
-                         message="{last_error}"/>
-            <ArmAction command="{final_place_high_arm_command}"
-                       wait_result="true"
-                       timeout_sec="{final_place_high_timeout_sec}"
-                       message="{last_error}"/>
-          </Sequence>
-        </RetrySegment>
-      </Sequence>
+          <SelectFinalTarget command="{final_command}"
+                             layer="{final_layer}"
+                             column="{final_column}"
+                             flow="{final_flow}"
+                             target_x="{final_target_x}"
+                             target_y="{final_target_y}"
+                             target_yaw="{final_target_yaw}"
+                             max_speed="{final_target_max_speed}"
+                             pid_profile="{final_target_pid_profile}"
+                             timeout_sec="{final_target_timeout_sec}"
+                             message="{last_error}"/>
 
-      <Sequence name="FINAL_05_FINISH">
-        <RetrySegment num_attempts="3">
-          <Sequence>
-            <WaitArmIdle timeout_sec="{final_finish_timeout_sec}"
-                         message="{last_error}"/>
-            <ArmAction command="{final_finish_arm_command}"
-                       wait_result="true"
-                       timeout_sec="{final_finish_timeout_sec}"
-                       message="{last_error}"/>
-            <SuspensionControl mode="{final_finish_suspension_mode}"
-                               direction="{final_finish_suspension_direction}"
-                               height="{final_finish_suspension_height}"
-                               timeout_sec="{final_finish_suspension_timeout_sec}"
-                               message="{last_error}"/>
-          </Sequence>
-        </RetrySegment>
-      </Sequence>
+          <RetrySegment num_attempts="3">
+            <MoveToPose target_x="{final_target_x}"
+                        target_y="{final_target_y}"
+                        target_yaw="{final_target_yaw}"
+                        max_speed="{final_target_max_speed}"
+                        pid_profile="{final_target_pid_profile}"
+                        timeout_sec="{final_target_timeout_sec}"
+                        error_msg="{last_error}"/>
+          </RetrySegment>
+
+          <SwitchSegmentType segment_type="{final_flow}">
+
+            <Sequence name="LAYER2">
+              <PlaceObjectPlaceholder layer="{final_layer}"
+                                      column="{final_column}"
+                                      place_index="1"
+                                      message="{last_error}"/>
+              <WaitForIntSignal signal_topic="{final_deck_topic}"
+                                expected_value="{final_place_signal}"
+                                timeout_sec="{final_place_signal_timeout_sec}"
+                                received_value="{final_place_received_signal}"
+                                message="{last_error}"/>
+              <PlaceObjectPlaceholder layer="{final_layer}"
+                                      column="{final_column}"
+                                      place_index="2"
+                                      message="{last_error}"/>
+            </Sequence>
+
+            <Sequence name="LAYER3">
+              <WaitForIntSignal signal_topic="{final_deck_topic}"
+                                expected_value="{final_place_signal}"
+                                timeout_sec="{final_place_signal_timeout_sec}"
+                                received_value="{final_place_received_signal}"
+                                message="{last_error}"/>
+              <PlaceObjectPlaceholder layer="{final_layer}"
+                                      column="{final_column}"
+                                      place_index="1"
+                                      message="{last_error}"/>
+            </Sequence>
+
+            <Sequence name="default">
+              <SetDebugStatus execution_state="ACTION_FAILED" active_action="FinalDispatch"
+                              last_error="Unsupported final_flow"/>
+            </Sequence>
+
+          </SwitchSegmentType>
+
+          <WaitSeconds seconds="{final_post_place_wait_sec}"/>
+
+          <RetrySegment num_attempts="3">
+            <GoToPose target_x="{final_standby_target_x}"
+                      target_y="{final_standby_target_y}"
+                      target_yaw="{final_standby_target_yaw}"
+                      timeout_sec="{final_standby_timeout_sec}"
+                      message="{last_error}"/>
+          </RetrySegment>
+
+        </Sequence>
+      </Repeat>
 
     </Sequence>
   </BehaviorTree>

@@ -13,9 +13,11 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/ArmAction.action"
+  "action/GoToPose.action"
   "action/SpearAction.action"
   "action/SuspensionControl.action"
   "srv/GetActionSeq.srv"
+  "srv/StartAutonomy.srv"
   "srv/ToolAction.srv"
   DEPENDENCIES geometry_msgs action_msgs std_msgs
 )

@@ -35,10 +35,15 @@ add_library(r2_bt_nodes SHARED
   src/nodes/set_debug_status.cpp
   src/nodes/switch_segment_type.cpp
   src/nodes/for_each_segment.cpp
+  src/nodes/go_to_pose.cpp
+  src/nodes/place_object_placeholder.cpp
+  src/nodes/select_final_target.cpp
   src/nodes/spear_action.cpp
   src/nodes/suspension_control.cpp
   src/nodes/wait_arm_idle.cpp
+  src/nodes/wait_for_int_signal.cpp
   src/nodes/wait_for_r1_signal.cpp
+  src/nodes/wait_seconds.cpp
 )
 
 target_include_directories(r2_bt_nodes PUBLIC
@@ -53,6 +58,7 @@ ament_target_dependencies(r2_bt_nodes
   action_of_motion_interfaces
   r2_interfaces
   geometry_msgs
+  std_msgs
 )
 
 #------------------------------------------------------------

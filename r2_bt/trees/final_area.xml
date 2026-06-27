@@ -1,0 +1,104 @@
+<?xml version="1.0"?>
+<!--
+  final_area.xml — 竞技/终局局部执行树
+
+  只执行 FinalArea deck 控制流程。固定参数来自 match_config 的 final.* 字段。
+-->
+<root BTCPP_format="4" main_tree_to_execute="FinalArea">
+  <BehaviorTree ID="FinalArea">
+    <Sequence>
+
+      <Sequence name="FINAL_00_NAV2_TO_STANDBY">
+        <RetrySegment num_attempts="3">
+          <GoToPose target_x="{final_standby_target_x}"
+                    target_y="{final_standby_target_y}"
+                    target_yaw="{final_standby_target_yaw}"
+                    timeout_sec="{final_standby_timeout_sec}"
+                    message="{last_error}"/>
+        </RetrySegment>
+      </Sequence>
+
+      <Repeat num_cycles="-1">
+        <Sequence name="FINAL_LOOP">
+
+          <WaitForIntSignal signal_topic="{final_deck_topic}"
+                            expected_values="1,2,3,4,5,6"
+                            timeout_sec="{final_command_timeout_sec}"
+                            received_value="{final_command}"
+                            message="{last_error}"/>
+
+          <SelectFinalTarget command="{final_command}"
+                             layer="{final_layer}"
+                             column="{final_column}"
+                             flow="{final_flow}"
+                             target_x="{final_target_x}"
+                             target_y="{final_target_y}"
+                             target_yaw="{final_target_yaw}"
+                             max_speed="{final_target_max_speed}"
+                             pid_profile="{final_target_pid_profile}"
+                             timeout_sec="{final_target_timeout_sec}"
+                             message="{last_error}"/>
+
+          <RetrySegment num_attempts="3">
+            <MoveToPose target_x="{final_target_x}"
+                        target_y="{final_target_y}"
+                        target_yaw="{final_target_yaw}"
+                        max_speed="{final_target_max_speed}"
+                        pid_profile="{final_target_pid_profile}"
+                        timeout_sec="{final_target_timeout_sec}"
+                        error_msg="{last_error}"/>
+          </RetrySegment>
+
+          <SwitchSegmentType segment_type="{final_flow}">
+
+            <Sequence name="LAYER2">
+              <PlaceObjectPlaceholder layer="{final_layer}"
+                                      column="{final_column}"
+                                      place_index="1"
+                                      message="{last_error}"/>
+              <WaitForIntSignal signal_topic="{final_deck_topic}"
+                                expected_value="{final_place_signal}"
+                                timeout_sec="{final_place_signal_timeout_sec}"
+                                received_value="{final_place_received_signal}"
+                                message="{last_error}"/>
+              <PlaceObjectPlaceholder layer="{final_layer}"
+                                      column="{final_column}"
+                                      place_index="2"
+                                      message="{last_error}"/>
+            </Sequence>
+
+            <Sequence name="LAYER3">
+              <WaitForIntSignal signal_topic="{final_deck_topic}"
+                                expected_value="{final_place_signal}"
+                                timeout_sec="{final_place_signal_timeout_sec}"
+                                received_value="{final_place_received_signal}"
+                                message="{last_error}"/>
+              <PlaceObjectPlaceholder layer="{final_layer}"
+                                      column="{final_column}"
+                                      place_index="1"
+                                      message="{last_error}"/>
+            </Sequence>
+
+            <Sequence name="default">
+              <SetDebugStatus execution_state="ACTION_FAILED" active_action="FinalDispatch"
+                              last_error="Unsupported final_flow"/>
+            </Sequence>
+
+          </SwitchSegmentType>
+
+          <WaitSeconds seconds="{final_post_place_wait_sec}"/>
+
+          <RetrySegment num_attempts="3">
+            <GoToPose target_x="{final_standby_target_x}"
+                      target_y="{final_standby_target_y}"
+                      target_yaw="{final_standby_target_yaw}"
+                      timeout_sec="{final_standby_timeout_sec}"
+                      message="{last_error}"/>
+          </RetrySegment>
+
+        </Sequence>
+      </Repeat>
+
+    </Sequence>
+  </BehaviorTree>
+</root>

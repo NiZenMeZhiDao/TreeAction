@@ -2,6 +2,9 @@
   "match_side": "red",
 
   "prepare": {
+    "deck_topic": "/aruco_comm/tx_id",
+    "build_signal": 8,
+    "build_timeout_sec": 0.0,
     "spear_prep": {
       "spear_command": "prep",
       "target_x": 0.50,
@@ -57,37 +60,66 @@
   },
 
   "final": {
-    "move2": {
-      "target_x": 2.10,
-      "target_y": 0.80,
-      "target_yaw": 0.00,
-      "max_speed": 0.50,
-      "pid_profile": 1,
-      "timeout_sec": 10.0
-    },
-    "final_move2": {
-      "target_x": 2.80,
+    "deck_topic": "/aruco_comm/tx_id",
+    "place_signal": 7,
+    "command_timeout_sec": 0.0,
+    "place_signal_timeout_sec": 0.0,
+    "post_place_wait_sec": 1.0,
+    "standby": {
+      "target_x": 9.20,
       "target_y": 1.20,
-      "target_yaw": 1.57,
-      "max_speed": 0.40,
-      "pid_profile": 1,
-      "timeout_sec": 12.0
+      "target_yaw": 1.5708,
+      "timeout_sec": 60.0
     },
-    "place_mid": {
-      "arm_command": "place_mid",
-      "timeout_sec": 15.0
-    },
-    "place_high": {
-      "arm_command": "place_high",
-      "timeout_sec": 15.0
-    },
-    "finish": {
-      "arm_command": "idle",
-      "timeout_sec": 15.0,
-      "suspension_mode": 3,
-      "suspension_direction": 0,
-      "suspension_height": 30.0,
-      "suspension_timeout_sec": 10.0
+    "targets": {
+      "2_left": {
+        "target_x": 9.76,
+        "target_y": 1.20,
+        "target_yaw": 1.5708,
+        "max_speed": 0.40,
+        "pid_profile": 1,
+        "timeout_sec": 30.0
+      },
+      "2_mid": {
+        "target_x": 10.30,
+        "target_y": 1.20,
+        "target_yaw": 1.5708,
+        "max_speed": 0.40,
+        "pid_profile": 1,
+        "timeout_sec": 30.0
+      },
+      "2_right": {
+        "target_x": 10.84,
+        "target_y": 1.20,
+        "target_yaw": 1.5708,
+        "max_speed": 0.40,
+        "pid_profile": 1,
+        "timeout_sec": 30.0
+      },
+      "3_left": {
+        "target_x": 9.76,
+        "target_y": 1.20,
+        "target_yaw": 1.5708,
+        "max_speed": 0.40,
+        "pid_profile": 1,
+        "timeout_sec": 30.0
+      },
+      "3_mid": {
+        "target_x": 10.30,
+        "target_y": 1.20,
+        "target_yaw": 1.5708,
+        "max_speed": 0.40,
+        "pid_profile": 1,
+        "timeout_sec": 30.0
+      },
+      "3_right": {
+        "target_x": 10.84,
+        "target_y": 1.20,
+        "target_yaw": 1.5708,
+        "max_speed": 0.40,
+        "pid_profile": 1,
+        "timeout_sec": 30.0
+      }
     }
   }
 }

@@ -1,0 +1,12 @@
+# GoToPose.action — BT to Nav2 wrapper navigation goal.
+
+float64 x
+float64 y
+float64 yaw
+string frame_id
+float32 timeout_sec
+---
+bool success
+string message
+---
+float32 distance_remaining

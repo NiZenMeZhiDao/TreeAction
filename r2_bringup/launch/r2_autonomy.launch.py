@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-r2_autonomy.launch.py — 真机全自动两阶段启动
+r2_autonomy.launch.py — 真机全自动分阶段启动
 
-启动后默认只初始化系统，不执行行为树动作。正式执行通过:
-  ros2 service call /bt_engine/start_autonomy r2_interfaces/srv/StartAutonomy "{region: full}"
+启动示例:
+  ros2 launch r2_bringup r2_autonomy.launch.py
+  ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=prepare
 
-分区域执行 region:
-  full / prepare / meilin / final
+startup_profile:
+  full / prepare / minimal_meilin
 """
 
 from launch import LaunchDescription
@@ -23,7 +24,7 @@ def generate_launch_description():
     startup_profile_arg = DeclareLaunchArgument(
         'startup_profile',
         default_value='full',
-        description='Startup profile: full or minimal_meilin')
+        description='Startup profile: full, prepare, or minimal_meilin')
 
     match_config_arg = DeclareLaunchArgument(
         'match_config',
@@ -100,8 +101,15 @@ def generate_launch_description():
         default_value='/dev/ttyUSB0',
         description='STL-27L serial device used by pick_action when synthetic mode is false')
 
-    full_profile = PythonExpression([
-        "'", LaunchConfiguration('startup_profile'), "' == 'full'"
+    prepare_or_full_profile = PythonExpression([
+        "'", LaunchConfiguration('startup_profile'), "' in ['prepare', 'full']"
+    ])
+    meilin_or_full_profile = PythonExpression([
+        "'", LaunchConfiguration('startup_profile'), "' in ['minimal_meilin', 'full']"
+    ])
+    tree_file = PythonExpression([
+        "'prepare_area.xml' if '", LaunchConfiguration('startup_profile'),
+        "' == 'prepare' else 'full_match.xml'"
     ])
 
     odin_launch = IncludeLaunchDescription(
@@ -123,7 +131,7 @@ def generate_launch_description():
     )
 
     tool_node = Node(
-        condition=IfCondition(full_profile),
+        condition=IfCondition(prepare_or_full_profile),
         package='ares_tool_control',
         executable='tool_node',
         name='ares_tool_node',
@@ -147,7 +155,7 @@ def generate_launch_description():
             'port_name': LaunchConfiguration('pick_lidar_port'),
             'use_synthetic': LaunchConfiguration('pick_use_synthetic'),
         }.items(),
-        condition=IfCondition(full_profile),
+        condition=IfCondition(prepare_or_full_profile),
     )
 
     multi_serial_node = Node(
@@ -173,6 +181,7 @@ def generate_launch_description():
     )
 
     suspension_action_server = Node(
+        condition=IfCondition(meilin_or_full_profile),
         package='r2_hardware',
         executable='suspension_action_server',
         name='suspension_action_server',
@@ -180,6 +189,7 @@ def generate_launch_description():
     )
 
     mf_buffer_node = Node(
+        condition=IfCondition(meilin_or_full_profile),
         package='mf_action_planner',
         executable='mf_buffer_node',
         name='mf_buffer_node',
@@ -192,7 +202,7 @@ def generate_launch_description():
         name='bt_engine_node',
         output='screen',
         parameters=[{
-            'tree_file': 'full_match.xml',
+            'tree_file': tree_file,
             'match_config': LaunchConfiguration('match_config'),
             'param_config': LaunchConfiguration('param_config'),
             'groot2_port': ParameterValue(

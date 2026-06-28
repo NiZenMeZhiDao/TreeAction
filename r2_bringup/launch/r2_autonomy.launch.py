@@ -91,6 +91,26 @@ def generate_launch_description():
         default_value='60000',
         description='ARES tool service completion timeout in milliseconds')
 
+    is_red_zone_arg = DeclareLaunchArgument(
+        'is_red_zone',
+        default_value='false',
+        description='Whether Meilin area uses the red-side height map')
+
+    grid_size_arg = DeclareLaunchArgument(
+        'grid_size',
+        default_value='1.2',
+        description='Meilin grid cell size in meters')
+
+    grid_origin_arg = DeclareLaunchArgument(
+        'grid_origin',
+        default_value='[2.14, 0.49]',
+        description='Meilin grid origin [x, y] in map frame')
+
+    grasp_distance_arg = DeclareLaunchArgument(
+        'grasp_distance',
+        default_value='0.4',
+        description='Vehicle distance to cell edge during Meilin fetch')
+
     pick_use_synthetic_arg = DeclareLaunchArgument(
         'pick_use_synthetic',
         default_value='true',
@@ -100,6 +120,11 @@ def generate_launch_description():
         'pick_lidar_port',
         default_value='/dev/ttyUSB0',
         description='STL-27L serial device used by pick_action when synthetic mode is false')
+
+    pick_expected_count_arg = DeclareLaunchArgument(
+        'pick_expected_count',
+        default_value='3',
+        description='Number of spear targets expected by pick_action recognition')
 
     prepare_or_full_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'), "' in ['prepare', 'full']"
@@ -141,7 +166,6 @@ def generate_launch_description():
     )
 
     tool_node = Node(
-        condition=IfCondition(prepare_or_full_profile),
         package='ares_tool_control',
         executable='tool_node',
         name='ares_tool_node',
@@ -164,6 +188,7 @@ def generate_launch_description():
         launch_arguments={
             'port_name': LaunchConfiguration('pick_lidar_port'),
             'use_synthetic': LaunchConfiguration('pick_use_synthetic'),
+            'expected_count': LaunchConfiguration('pick_expected_count'),
         }.items(),
         condition=IfCondition(prepare_or_full_profile),
     )
@@ -223,6 +248,13 @@ def generate_launch_description():
             'mf_action_topic': '/mf_action_seq',
             'buffer_service': '/get_action_seq',
             'meilin_pose_topic': LaunchConfiguration('relocation_topic'),
+            'meilin_grid_size': LaunchConfiguration('grid_size'),
+            'meilin_grid_origin': LaunchConfiguration('grid_origin'),
+            'meilin_grasp_distance': LaunchConfiguration('grasp_distance'),
+            'meilin_side': PythonExpression([
+                "'red' if '", LaunchConfiguration('is_red_zone'),
+                "' == 'true' else 'blue'"
+            ]),
             'autostart': ParameterValue(
                 LaunchConfiguration('autostart'), value_type=bool),
             'default_region': default_region,
@@ -248,8 +280,13 @@ def generate_launch_description():
         tool_vid_arg,
         tool_pid_arg,
         tool_timeout_arg,
+        is_red_zone_arg,
+        grid_size_arg,
+        grid_origin_arg,
+        grasp_distance_arg,
         pick_use_synthetic_arg,
         pick_lidar_port_arg,
+        pick_expected_count_arg,
 
         LogInfo(msg='=== R2 autonomy bringup: localization ==='),
         odin_launch,

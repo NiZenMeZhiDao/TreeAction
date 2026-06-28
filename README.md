@@ -276,7 +276,16 @@ ros2 launch r2_bt meilin_stage.launch.py
 ros2 launch r2_bringup r2_sim.launch.py param_config:=config/param.yaml match_config:=config/match_blue.json
 
 # 全场实车
-ros2 launch r2_bringup r2_full.launch.py
+ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=full
+
+# 梅林区实车（service 分段启动）
+ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=minimal_meilin
+
+# 启动全场执行
+ros2 service call /bt_engine/start_autonomy r2_interfaces/srv/StartAutonomy "{region: 'full'}"
+
+# 启动梅林段执行
+ros2 service call /bt_engine/start_autonomy r2_interfaces/srv/StartAutonomy "{region: 'meilin'}"
 ```
 
 发布测试序列：
@@ -438,12 +447,16 @@ prepare_area:
     timeout_sec: 10.0
     retry_attempts: 3
 
+  pick_action:
+    server_name: "/pick_action"
+    expected_count: 3
+    timeout_sec: 45.0
+    retry_attempts: 1
+
   spear_tool:
     service_name: "/ares_tool_node/tool_action"
-    grasp_action: "grasp"
-    grasp_timeout_sec: 20.0
     dock_extend_action: "dock_extend"
-    dock_extend_timeout_sec: 60.0
+    dock_extend_timeout_sec: 70.0
     retry_attempts: 3
     args: [0.0, 0.0, 0.0, 0.0]
 ```
@@ -587,13 +600,19 @@ ros2 launch r2_bt meilin_stage.launch.py
 ros2 launch r2_bringup r2_sim.launch.py param_config:=config/param.yaml match_config:=config/match_blue.json
 
 # 全场实车
-ros2 launch r2_bringup r2_full.launch.py
+ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=full
 
 # 全场实车（指定 ARES tool USB 参数）
-ros2 launch r2_bringup r2_full.launch.py tool_vid:=4617 tool_pid:=2 tool_completion_timeout_ms:=15000
+ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=full tool_vid:=4617 tool_pid:=2 tool_completion_timeout_ms:=60000
+
+# 梅林区实车（只启动梅林段依赖，等待 service 触发 BT）
+ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=minimal_meilin
+
+# 启动梅林段执行
+ros2 service call /bt_engine/start_autonomy r2_interfaces/srv/StartAutonomy "{region: 'meilin'}"
 ```
 
-`r2_full.launch.py` 会同时启动 `ares_tool_control/tool_node`，提供 PrepareArea 所需的 `/ares_tool_node/tool_action` service。仿真 launch 默认不启动 USB tool service；如需在仿真里跑完整 `PrepareArea`，需要另外提供同名 service 或单独启动可用的 tool 节点。
+`r2_autonomy.launch.py` 会启动实车依赖节点并默认 `autostart:=false`，BT 节点会等待 `/bt_engine/start_autonomy` 后才开始 tick。`/mf_action_seq` 和 `/get_action_seq` 只提供梅林路径数据，不触发执行。仿真 launch 默认不启动 USB tool service；如需在仿真里跑完整 `PrepareArea`，需要另外提供同名 service 或单独启动可用的 tool 节点。
 
 ### 仅 BT 引擎
 

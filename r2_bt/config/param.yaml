@@ -1,10 +1,18 @@
+# Consumed by r2_bt_engine via the `param_config` launch parameter.
+# This file currently configures PrepareArea only. Meilin runtime geometry
+# (grid_size/grid_origin/grasp_distance/is_red_zone) is passed as ROS
+# parameters from r2_autonomy.launch.py or r2_meilin.launch.py.
+
 prepare_area:
   points:
+    # MoveToPose target before running the spear pick action.
     spear_pickup:
       x: 0.34
       y: -0.63
       yaw: 1.6493
       frame_id: "map"
+
+    # MoveToPose target used in parallel with the dock_extend tool action.
     dock_standby:
       x: -0.00
       y: 0.76
@@ -12,17 +20,21 @@ prepare_area:
       frame_id: "map"
 
   motion:
+    # Shared MoveToPose settings for spear_pickup and dock_standby.
     pid_profile: 1
     timeout_sec: 10.0
     retry_attempts: 3
 
   pick_action:
+    # Keep expected_count aligned with r2_autonomy.launch.py pick_expected_count
+    # and pick_action recognition defaults when running the full prepare flow.
     server_name: "/pick_action"
     expected_count: 3
     timeout_sec: 45.0
     retry_attempts: 1
 
   spear_tool:
+    # ToolAction service used by the parallel dock extension step.
     service_name: "/ares_tool_node/tool_action"
     dock_extend_action: "dock_extend"
     dock_extend_timeout_sec: 70.0

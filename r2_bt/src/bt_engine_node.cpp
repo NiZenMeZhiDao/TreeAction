@@ -12,6 +12,7 @@
 #include <r2_interfaces/action/suspension_control.hpp>
 #include <r2_interfaces/srv/get_action_seq.hpp>
 #include <r2_interfaces/srv/start_autonomy.hpp>
+#include <r2_interfaces/srv/tool_action.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
@@ -198,6 +199,7 @@ public:
     blackboard_->set("meilin_pose_y", 0.0);
     blackboard_->set("meilin_pose_yaw", 0.0);
     blackboard_->set("meilin_pose_last_update_sec", 0.0);
+    blackboard_->set("meilin_pose_frame_id", std::string{});
 
     // 加载准备区和比赛配置（PrepareArea/FinalArea 的固定参数）
     load_param_config();
@@ -214,6 +216,19 @@ public:
 
     // === 暂存区 Service Client（替代直接订阅 /mf_action_seq） ===
     buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
+    tool_client_ = create_client<ToolActionSrv>("/ares_tool_node/tool_action");
+    pick_action_client_ = rclcpp_action::create_client<PickSequenceAction>(
+        get_node_base_interface(),
+        get_node_graph_interface(),
+        get_node_logging_interface(),
+        get_node_waitables_interface(),
+        "pick_action");
+    suspension_client_ = rclcpp_action::create_client<SuspensionAction>(
+        get_node_base_interface(),
+        get_node_graph_interface(),
+        get_node_logging_interface(),
+        get_node_waitables_interface(),
+        "suspension_control");
     start_autonomy_service_ = create_service<r2_interfaces::srv::StartAutonomy>(
         "/bt_engine/start_autonomy",
         std::bind(&BtEngineNode::start_autonomy_callback, this,
@@ -310,6 +325,101 @@ private:
     return {};
   }
 
+  static bool region_needs_prepare(const std::string& region)
+  {
+    return region == "prepare" || region == "prepare_area" ||
+           region == "full" || region == "full_match";
+  }
+
+  static bool region_needs_meilin(const std::string& region)
+  {
+    return region == "meilin" || region == "minimal_meilin" ||
+           region == "meilin_stage" || region == "full" || region == "full_match";
+  }
+
+  bool append_if_missing(bool ready, const std::string& name,
+                         std::vector<std::string>& missing) const
+  {
+    if (!ready)
+    {
+      missing.push_back(name);
+      return false;
+    }
+    return true;
+  }
+
+  std::vector<std::string> missing_start_dependencies(const std::string& region) const
+  {
+    std::vector<std::string> missing;
+
+    const bool needs_prepare = region_needs_prepare(region);
+    const bool needs_meilin = region_needs_meilin(region);
+
+    if (needs_prepare || needs_meilin)
+    {
+      append_if_missing(move_to_pose_client_ && move_to_pose_client_->action_server_is_ready(),
+                        "/move_to_pose action", missing);
+    }
+
+    if (needs_prepare)
+    {
+      append_if_missing(pick_action_client_ && pick_action_client_->action_server_is_ready(),
+                        "/pick_action action", missing);
+      append_if_missing(tool_client_ && tool_client_->service_is_ready(),
+                        "/ares_tool_node/tool_action service", missing);
+    }
+
+    if (needs_meilin)
+    {
+      append_if_missing(suspension_client_ && suspension_client_->action_server_is_ready(),
+                        "/suspension_control action", missing);
+      append_if_missing(tool_client_ && tool_client_->service_is_ready(),
+                        "/ares_tool_node/tool_action service", missing);
+      append_if_missing(buffer_client_ && buffer_client_->service_is_ready(),
+                        buffer_service_ + " service", missing);
+
+      if (require_map_relocalization_)
+      {
+        bool pose_received = false;
+        const bool pose_received_got =
+            blackboard_->get("meilin_pose_received", pose_received);
+
+        double last_update_sec = 0.0;
+        const bool last_update_got =
+            blackboard_->get("meilin_pose_last_update_sec", last_update_sec);
+
+        std::string frame_id;
+        const bool frame_id_got =
+            blackboard_->get("meilin_pose_frame_id", frame_id);
+
+        const double age_sec = now().seconds() - last_update_sec;
+        append_if_missing(pose_received_got && pose_received,
+                          meilin_pose_topic_ + " pose", missing);
+        if (pose_received_got && pose_received)
+        {
+          append_if_missing(last_update_got && age_sec <= localization_timeout_sec_,
+                            meilin_pose_topic_ + " fresh pose", missing);
+          append_if_missing(frame_id_got && frame_id == "map",
+                            meilin_pose_topic_ + " frame_id=map", missing);
+        }
+      }
+    }
+
+    return missing;
+  }
+
+  static std::string join_strings(const std::vector<std::string>& items,
+                                  const std::string& delimiter)
+  {
+    std::ostringstream oss;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+      if (i > 0) oss << delimiter;
+      oss << items[i];
+    }
+    return oss.str();
+  }
+
   void reset_runtime_blackboard(const std::string& region)
   {
     blackboard_->set("plan_id", std::string{});
@@ -370,6 +480,17 @@ private:
         response->message = "Failed to load tree for region: " + region;
         return;
       }
+    }
+
+    const auto missing = missing_start_dependencies(region);
+    if (!missing.empty())
+    {
+      response->success = false;
+      response->message = "Autonomy start blocked; missing dependencies: " +
+                          join_strings(missing, ", ");
+      blackboard_->set("last_error", response->message);
+      RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+      return;
     }
 
     reset_runtime_blackboard(region);
@@ -968,6 +1089,7 @@ private:
     blackboard_->set("meilin_pose_y", pose.position.y);
     blackboard_->set("meilin_pose_yaw", yaw_from_quaternion(pose.orientation));
     blackboard_->set("meilin_pose_last_update_sec", now().seconds());
+    blackboard_->set("meilin_pose_frame_id", msg->header.frame_id);
   }
 
   // =========================================================================
@@ -1336,14 +1458,19 @@ private:
           RCLCPP_ERROR(get_logger(),
                        "BT returned FAILURE; autonomy paused until /bt_engine/start_autonomy");
         }
-        else if (status == BT::NodeStatus::SUCCESS && tree_file_ == "prepare_area.xml")
+        else if (status == BT::NodeStatus::SUCCESS)
         {
-          blackboard_->set("execution_state", std::string{"MISSION_SUCCESS"});
+          std::string state;
+          if (!blackboard_->get("execution_state", state) ||
+              state.find("SUCCESS") == std::string::npos)
+          {
+            blackboard_->set("execution_state", std::string{"MISSION_SUCCESS"});
+          }
           blackboard_->set("active_action", std::string{});
           autonomy_started_ = false;
           current_tree_->haltTree();
           RCLCPP_INFO(get_logger(),
-                      "Prepare tree returned SUCCESS; autonomy paused until /bt_engine/start_autonomy");
+                      "BT returned SUCCESS; autonomy paused with current success state");
         }
       }
       catch (const std::exception& e)
@@ -1361,6 +1488,9 @@ private:
   // =========================================================================
 
   using MoveToPoseAction = action_of_motion_interfaces::action::MoveToPose;
+  using PickSequenceAction = pick_action_interfaces::action::PickSequence;
+  using SuspensionAction = r2_interfaces::action::SuspensionControl;
+  using ToolActionSrv = r2_interfaces::srv::ToolAction;
 
   BT::BehaviorTreeFactory factory_;
   BT::Blackboard::Ptr blackboard_;
@@ -1375,7 +1505,10 @@ private:
 
   // 暂存区 Service Client
   rclcpp::Client<r2_interfaces::srv::GetActionSeq>::SharedPtr buffer_client_;
+  rclcpp::Client<ToolActionSrv>::SharedPtr tool_client_;
   rclcpp_action::Client<MoveToPoseAction>::SharedPtr move_to_pose_client_;
+  rclcpp_action::Client<PickSequenceAction>::SharedPtr pick_action_client_;
+  rclcpp_action::Client<SuspensionAction>::SharedPtr suspension_client_;
 
   unsigned groot2_port_ = 1667;
   std::string segment_topic_;

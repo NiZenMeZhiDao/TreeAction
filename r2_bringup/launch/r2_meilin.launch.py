@@ -8,11 +8,11 @@ r2_meilin.launch.py — 真机梅林区单独启动
   3. Action Server: 底盘微调 / 主动悬挂 / 机械臂 / 矛头机构
   4. r2_bt (BT 决策引擎，加载 meilin_stage.xml)
 
-与 r2_full.launch.py 的区别:
+与 r2_autonomy.launch.py 的区别:
   - 树固定为 meilin_stage.xml（不加载准备区/竞技区）
   - 包含梅林区几何参数（grid_size / grid_origin / grasp_distance / is_red_zone）
   - 无需 match_config
-  - 适合单独调试梅林区
+  - 适合单独调试梅林区；实车分阶段/全流程推荐使用 r2_autonomy.launch.py
 
 启动示例:
   ros2 launch r2_bringup r2_meilin.launch.py                              # 默认蓝方

@@ -149,16 +149,6 @@ public:
     blackboard_->set("last_error", std::string{});
     blackboard_->set("execution_state", std::string{"WAITING_PLAN"});
 
-    move_to_pose_client_ =
-        rclcpp_action::create_client<MoveToPoseAction>(
-            get_node_base_interface(),
-            get_node_graph_interface(),
-            get_node_logging_interface(),
-            get_node_waitables_interface(),
-            "move_to_pose");
-    blackboard_->set("move_to_pose_client", move_to_pose_client_);
-    RCLCPP_INFO(get_logger(), "Prewarmed shared MoveToPose client for /move_to_pose");
-
     // 梅林区静态配置（Move/Fetch 内部计算用）
     auto meilin_cfg = std::make_shared<r2_bt::MeilinConfig>();
     meilin_cfg->side = meilin_side_;
@@ -214,21 +204,8 @@ public:
                   "blackboard variables — ensure they are set before tick.");
     }
 
-    // === 暂存区 Service Client（替代直接订阅 /mf_action_seq） ===
-    buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
-    tool_client_ = create_client<ToolActionSrv>("/ares_tool_node/tool_action");
-    pick_action_client_ = rclcpp_action::create_client<PickSequenceAction>(
-        get_node_base_interface(),
-        get_node_graph_interface(),
-        get_node_logging_interface(),
-        get_node_waitables_interface(),
-        "pick_action");
-    suspension_client_ = rclcpp_action::create_client<SuspensionAction>(
-        get_node_base_interface(),
-        get_node_graph_interface(),
-        get_node_logging_interface(),
-        get_node_waitables_interface(),
-        "suspension_control");
+    prewarm_ros_clients();
+
     start_autonomy_service_ = create_service<r2_interfaces::srv::StartAutonomy>(
         "/bt_engine/start_autonomy",
         std::bind(&BtEngineNode::start_autonomy_callback, this,
@@ -346,6 +323,56 @@ private:
       return false;
     }
     return true;
+  }
+
+  void prewarm_ros_clients()
+  {
+    std::string pick_action_name = "/pick_action";
+    const bool pick_action_name_loaded =
+        blackboard_->get("prepare_pick_action_server_name", pick_action_name);
+    (void)pick_action_name_loaded;
+
+    std::string tool_service_name = "/ares_tool_node/tool_action";
+    const bool tool_service_name_loaded =
+        blackboard_->get("prepare_spear_tool_service_name", tool_service_name);
+    (void)tool_service_name_loaded;
+
+    move_to_pose_client_ =
+        rclcpp_action::create_client<MoveToPoseAction>(
+            get_node_base_interface(),
+            get_node_graph_interface(),
+            get_node_logging_interface(),
+            get_node_waitables_interface(),
+            "move_to_pose");
+    blackboard_->set("move_to_pose_client", move_to_pose_client_);
+
+    pick_action_client_ = rclcpp_action::create_client<PickSequenceAction>(
+        get_node_base_interface(),
+        get_node_graph_interface(),
+        get_node_logging_interface(),
+        get_node_waitables_interface(),
+        pick_action_name);
+    blackboard_->set("pick_action_client", pick_action_client_);
+    blackboard_->set("pick_action_client_name", pick_action_name);
+
+    tool_client_ = create_client<ToolActionSrv>(tool_service_name);
+    blackboard_->set("tool_action_client", tool_client_);
+    blackboard_->set("tool_action_client_name", tool_service_name);
+
+    buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
+    suspension_client_ = rclcpp_action::create_client<SuspensionAction>(
+        get_node_base_interface(),
+        get_node_graph_interface(),
+        get_node_logging_interface(),
+        get_node_waitables_interface(),
+        "suspension_control");
+
+    RCLCPP_INFO(get_logger(),
+                "Prewarmed shared clients: move_to_pose=/move_to_pose, "
+                "pick_action=%s, tool_service=%s, suspension=/suspension_control, "
+                "buffer_service=%s",
+                pick_action_name.c_str(), tool_service_name.c_str(),
+                buffer_service_.c_str());
   }
 
   std::vector<std::string> missing_start_dependencies(const std::string& region) const

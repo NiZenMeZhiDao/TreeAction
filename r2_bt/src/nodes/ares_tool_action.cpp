@@ -49,7 +49,25 @@ BT::NodeStatus AresToolAction::onStart()
 
   if (!client_ || client_->get_service_name() != service_name_)
   {
-    client_ = node_->create_client<ServiceT>(service_name_);
+    rclcpp::Client<ServiceT>::SharedPtr shared_client;
+    std::string shared_client_name;
+    if (config().blackboard->get("tool_action_client", shared_client) &&
+        config().blackboard->get("tool_action_client_name", shared_client_name) &&
+        shared_client && shared_client_name == service_name_)
+    {
+      client_ = shared_client;
+      RCLCPP_DEBUG(node_->get_logger(),
+                   "[AresToolAction] Reusing prewarmed service client: %s",
+                   service_name_.c_str());
+    }
+    else
+    {
+      client_ = node_->create_client<ServiceT>(service_name_);
+      RCLCPP_WARN(node_->get_logger(),
+                  "[AresToolAction] Created local service client for %s; "
+                  "prewarmed client was missing or name-mismatched",
+                  service_name_.c_str());
+    }
   }
 
   if (!client_->service_is_ready())

@@ -54,7 +54,25 @@ BT::NodeStatus PickAction::onStart()
   if (!action_client_ || server_name_ != server_name)
   {
     server_name_ = server_name;
-    action_client_ = rclcpp_action::create_client<ActionT>(node_, server_name_);
+    rclcpp_action::Client<ActionT>::SharedPtr shared_client;
+    std::string shared_client_name;
+    if (config().blackboard->get("pick_action_client", shared_client) &&
+        config().blackboard->get("pick_action_client_name", shared_client_name) &&
+        shared_client && shared_client_name == server_name_)
+    {
+      action_client_ = shared_client;
+      RCLCPP_DEBUG(node_->get_logger(),
+                   "[PickAction] Reusing prewarmed action client: %s",
+                   server_name_.c_str());
+    }
+    else
+    {
+      action_client_ = rclcpp_action::create_client<ActionT>(node_, server_name_);
+      RCLCPP_WARN(node_->get_logger(),
+                  "[PickAction] Created local action client for %s; "
+                  "prewarmed client was missing or name-mismatched",
+                  server_name_.c_str());
+    }
   }
 
   if (!action_client_->action_server_is_ready())

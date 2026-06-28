@@ -7,14 +7,14 @@ prepare_area:
   points:
     # MoveToPose target before running the spear pick action.
     spear_pickup:
-      x: 0.34
-      y: -0.63
+      x: 0.49
+      y: -0.73
       yaw: 1.6493
       frame_id: "map"
 
     # MoveToPose target used in parallel with the dock_extend tool action.
     dock_standby:
-      x: -0.00
+      x: 0.02
       y: 0.76
       yaw: -3.1172
       frame_id: "map"

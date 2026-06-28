@@ -18,8 +18,10 @@
 #include <std_msgs/msg/string.hpp>
 
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cctype>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -67,6 +69,10 @@ public:
     declare_parameter("tree_file", "full_match.xml");
     declare_parameter("param_config", "");
     declare_parameter("match_config", "");
+    declare_parameter("autostart", true);
+    declare_parameter("default_region", "full");
+    declare_parameter("require_map_relocalization", false);
+    declare_parameter("localization_timeout_sec", 1.0);
 
     // === 梅林区参数 ===
     declare_parameter("meilin_side", "blue");
@@ -94,6 +100,13 @@ public:
     tree_file_ = get_parameter("tree_file").as_string();
     param_config_ = get_parameter("param_config").as_string();
     match_config_ = get_parameter("match_config").as_string();
+    autostart_ = get_parameter("autostart").as_bool();
+    autonomy_started_ = autostart_;
+    default_region_ = normalize_region(get_parameter("default_region").as_string());
+    require_map_relocalization_ =
+        get_parameter("require_map_relocalization").as_bool();
+    localization_timeout_sec_ =
+        get_parameter("localization_timeout_sec").as_double();
     load_meilin_parameters();
 
     // === 注册 BT 节点 ===
@@ -201,6 +214,10 @@ public:
 
     // === 暂存区 Service Client（替代直接订阅 /mf_action_seq） ===
     buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
+    start_autonomy_service_ = create_service<r2_interfaces::srv::StartAutonomy>(
+        "/bt_engine/start_autonomy",
+        std::bind(&BtEngineNode::start_autonomy_callback, this,
+                  std::placeholders::_1, std::placeholders::_2));
 
     // === 订阅 ===
     segment_sub_ = create_subscription<std_msgs::msg::String>(
@@ -216,6 +233,15 @@ public:
         std::bind(&BtEngineNode::buffer_poll_callback, this));
 
     build_fixed_tree();
+    if (!autonomy_started_)
+    {
+      blackboard_->set("execution_state", std::string{"IDLE"});
+      blackboard_->set("active_action", std::string{});
+      RCLCPP_INFO(get_logger(),
+                  "Autonomy gated: waiting for /bt_engine/start_autonomy "
+                  "(default_region=%s)",
+                  default_region_.c_str());
+    }
 
     auto tick_period = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::duration<double>(1.0 / tick_freq));
@@ -224,10 +250,12 @@ public:
 
     RCLCPP_INFO(get_logger(),
                 "BT Engine started: tick=%.1fHz, groot2_port=%u, segment_topic=%s, "
-                "buffer_service=%s, meilin_pose_topic=%s, tree_file=%s, match_config=%s",
+                "buffer_service=%s, meilin_pose_topic=%s, tree_file=%s, match_config=%s, "
+                "autostart=%s",
                 tick_freq, groot2_port_, segment_topic_.c_str(),
                 buffer_service_.c_str(), meilin_pose_topic_.c_str(), tree_file_.c_str(),
-                match_config_.empty() ? "(none)" : match_config_.c_str());
+                match_config_.empty() ? "(none)" : match_config_.c_str(),
+                autostart_ ? "true" : "false");
   }
 
   ~BtEngineNode() override
@@ -262,6 +290,94 @@ private:
     if (value == "place_mid") return 5;
     if (value == "place_high") return 6;
     return 0;
+  }
+
+  static std::string normalize_region(std::string value)
+  {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return value;
+  }
+
+  static std::string tree_file_for_region(const std::string& region)
+  {
+    if (region.empty() || region == "full" || region == "full_match")
+      return "full_match.xml";
+    if (region == "prepare" || region == "prepare_area")
+      return "prepare_area.xml";
+    if (region == "meilin" || region == "minimal_meilin" || region == "meilin_stage")
+      return "meilin_stage.xml";
+    return {};
+  }
+
+  void reset_runtime_blackboard(const std::string& region)
+  {
+    blackboard_->set("plan_id", std::string{});
+    blackboard_->set("current_segment_index", -1);
+    blackboard_->set("segment_type", std::string{});
+    blackboard_->set("segment_debug_name", std::string{});
+    blackboard_->set("active_action", std::string{});
+    blackboard_->set("retry_count", 0);
+    blackboard_->set("last_error", std::string{});
+    blackboard_->set("execution_state",
+                     std::string{"AUTONOMY_RUNNING:"} + region);
+
+    r2_bt::SegmentQueuePtr queue;
+    if (blackboard_->get("segment_queue", queue) && queue)
+    {
+      std::unique_lock<std::mutex> lock(queue->mtx);
+      queue->items.clear();
+    }
+  }
+
+  void start_autonomy_callback(
+      const std::shared_ptr<r2_interfaces::srv::StartAutonomy::Request> request,
+      std::shared_ptr<r2_interfaces::srv::StartAutonomy::Response> response)
+  {
+    const std::string requested_region = normalize_region(request->region);
+    const std::string region =
+        requested_region.empty() ? default_region_ : requested_region;
+    const std::string requested_tree = tree_file_for_region(region);
+    if (requested_tree.empty())
+    {
+      response->success = false;
+      response->message = "Unsupported autonomy region: " + region;
+      RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+      return;
+    }
+
+    if (tree_file_ != requested_tree)
+    {
+      tree_file_ = requested_tree;
+      build_fixed_tree();
+      if (!current_tree_)
+      {
+        response->success = false;
+        response->message = "Failed to load tree for region: " + region;
+        return;
+      }
+    }
+    else if (current_tree_)
+    {
+      current_tree_->haltTree();
+    }
+    else
+    {
+      build_fixed_tree();
+      if (!current_tree_)
+      {
+        response->success = false;
+        response->message = "Failed to load tree for region: " + region;
+        return;
+      }
+    }
+
+    reset_runtime_blackboard(region);
+    autonomy_started_ = true;
+    response->success = true;
+    response->message = "Autonomy started: region=" + region +
+                        ", tree_file=" + tree_file_;
+    RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
   }
 
   static double yaw_from_quaternion(const geometry_msgs::msg::Quaternion& q)
@@ -905,6 +1021,9 @@ private:
 
   void buffer_poll_callback()
   {
+    if (!autonomy_started_)
+      return;
+
     // 只在等待新计划时才拉取暂存区
     std::string state;
     bool state_got = blackboard_->get("execution_state", state);
@@ -1201,13 +1320,38 @@ private:
 
   void tick_callback()
   {
+    if (!autonomy_started_)
+      return;
+
     if (current_tree_)
     {
-      blackboard_->set("ros_node", shared_from_this());
-      auto status = current_tree_->tickOnce();
-      if (status == BT::NodeStatus::FAILURE)
+      try
       {
+        blackboard_->set("ros_node", shared_from_this());
+        auto status = current_tree_->tickOnce();
+        if (status == BT::NodeStatus::FAILURE)
+        {
+          blackboard_->set("execution_state", std::string{"MISSION_FAILED"});
+          autonomy_started_ = false;
+          RCLCPP_ERROR(get_logger(),
+                       "BT returned FAILURE; autonomy paused until /bt_engine/start_autonomy");
+        }
+        else if (status == BT::NodeStatus::SUCCESS && tree_file_ == "prepare_area.xml")
+        {
+          blackboard_->set("execution_state", std::string{"MISSION_SUCCESS"});
+          blackboard_->set("active_action", std::string{});
+          autonomy_started_ = false;
+          current_tree_->haltTree();
+          RCLCPP_INFO(get_logger(),
+                      "Prepare tree returned SUCCESS; autonomy paused until /bt_engine/start_autonomy");
+        }
+      }
+      catch (const std::exception& e)
+      {
+        blackboard_->set("last_error", std::string{"BT tick exception: "} + e.what());
         blackboard_->set("execution_state", std::string{"MISSION_FAILED"});
+        autonomy_started_ = false;
+        RCLCPP_ERROR(get_logger(), "BT tick exception: %s", e.what());
       }
     }
   }
@@ -1227,6 +1371,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr meilin_pose_sub_;
   rclcpp::TimerBase::SharedPtr tick_timer_;
   rclcpp::TimerBase::SharedPtr buffer_poll_timer_;
+  rclcpp::Service<r2_interfaces::srv::StartAutonomy>::SharedPtr start_autonomy_service_;
 
   // 暂存区 Service Client
   rclcpp::Client<r2_interfaces::srv::GetActionSeq>::SharedPtr buffer_client_;
@@ -1240,7 +1385,12 @@ private:
   std::string tree_file_;
   std::string param_config_;
   std::string match_config_;
+  std::string default_region_ = "full";
   bool prepare_config_loaded_ = false;
+  bool autostart_ = true;
+  bool autonomy_started_ = true;
+  bool require_map_relocalization_ = false;
+  double localization_timeout_sec_ = 1.0;
 
   // 梅林区参数
   std::string meilin_side_ = "blue";

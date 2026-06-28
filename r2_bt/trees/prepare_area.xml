@@ -7,7 +7,7 @@
 -->
 <root BTCPP_format="4" main_tree_to_execute="PrepareArea">
   <BehaviorTree ID="PrepareArea">
-    <Sequence>
+    <SequenceWithMemory>
 
       <Sequence name="PREPARE_01_MOVE_TO_SPEAR_PICKUP">
         <RetrySegment num_attempts="{prepare_motion_retry_attempts}">
@@ -57,6 +57,6 @@
 
       <SetDebugStatus execution_state="MISSION_SUCCESS" active_action="" last_error=""/>
 
-    </Sequence>
+    </SequenceWithMemory>
   </BehaviorTree>
 </root>

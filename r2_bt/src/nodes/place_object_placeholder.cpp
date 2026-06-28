@@ -36,7 +36,7 @@ BT::NodeStatus PlaceObjectPlaceholder::tick()
   config().blackboard->set("execution_state", std::string{"ACTION_SUCCESS"});
 
   rclcpp::Node::SharedPtr node;
-  if (config().blackboard->get("ros_node", node) && node)
+  if (config().blackboard->rootBlackboard()->get("ros_node", node) && node)
   {
     RCLCPP_INFO(node->get_logger(), "[PlaceObjectPlaceholder] %s", message.c_str());
   }

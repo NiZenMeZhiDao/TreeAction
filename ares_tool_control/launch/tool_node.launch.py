@@ -8,7 +8,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     vid_arg = DeclareLaunchArgument("vid", default_value="4617")  # 0x1209
     pid_arg = DeclareLaunchArgument("pid", default_value="2")     # 0x0002
-    timeout_arg = DeclareLaunchArgument("completion_timeout_ms", default_value="15000")
+    timeout_arg = DeclareLaunchArgument("completion_timeout_ms", default_value="60000")
 
     return LaunchDescription([
         vid_arg,

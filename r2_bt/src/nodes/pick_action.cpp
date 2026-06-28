@@ -32,8 +32,7 @@ BT::NodeStatus PickAction::onStart()
     result_message_.clear();
   }
 
-  node_ = config().blackboard->get<rclcpp::Node::SharedPtr>("ros_node");
-  if (!node_)
+  if (!config().blackboard->rootBlackboard()->get("ros_node", node_) || !node_)
   {
     result_message_ = "Missing ros_node on blackboard";
     setOutput("message", result_message_);

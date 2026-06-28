@@ -226,8 +226,11 @@ BT::PortsList MeilinFetch::providedPorts()
 
 BT::NodeStatus MeilinFetch::onStart()
 {
-  node_ = config().blackboard->get<rclcpp::Node::SharedPtr>("ros_node");
-  if (!node_) { setOutput("message", std::string{"Missing ros_node"}); return BT::NodeStatus::FAILURE; }
+  if (!config().blackboard->rootBlackboard()->get("ros_node", node_) || !node_)
+  {
+    setOutput("message", std::string{"Missing ros_node"});
+    return BT::NodeStatus::FAILURE;
+  }
 
   // 1. 读取输入
   const auto kfs_row = getInput<int>("kfs_row");

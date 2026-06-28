@@ -69,7 +69,7 @@ class AresToolNode : public rclcpp::Node {
 	      usb_(static_cast<uint16_t>(declare_parameter<int>("vid", ares::kUsbVid)),
 		   static_cast<uint16_t>(declare_parameter<int>("pid", ares::kUsbPid)))
 	{
-		timeout_ms_ = declare_parameter<int>("completion_timeout_ms", 15000);
+		timeout_ms_ = declare_parameter<int>("completion_timeout_ms", 60000);
 		try_open();
 
 		service_ = create_service<ToolAction>(
@@ -77,8 +77,9 @@ class AresToolNode : public rclcpp::Node {
 			std::bind(&AresToolNode::handle, this, std::placeholders::_1,
 				  std::placeholders::_2));
 
-		RCLCPP_INFO(get_logger(), "ares_tool_node ready; service: %s; actions: %s",
-			    service_->get_service_name(), valid_actions().c_str());
+		RCLCPP_INFO(get_logger(),
+			    "ares_tool_node ready; service: %s; completion_timeout_ms=%d; actions: %s",
+			    service_->get_service_name(), timeout_ms_, valid_actions().c_str());
 	}
 
       private:
@@ -148,7 +149,8 @@ class AresToolNode : public rclcpp::Node {
 		res->success = r.completed;
 
 		if (r.completed) {
-			res->message = "action '" + req->action + "' completed";
+			res->message = "action '" + req->action +
+				       "' completed (MCU completion received)";
 			RCLCPP_INFO(get_logger(), "%s", res->message.c_str());
 		} else if (r.status == -ETIMEDOUT) {
 			res->message = "action '" + req->action +

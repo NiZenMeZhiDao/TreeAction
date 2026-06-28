@@ -7,9 +7,9 @@
 # [submodule "ARES_deck"]
 # 	path = ARES_deck
 # 	url = https://github.com/YiyuanYing/ARES_deck.git
-# [submodule "odin_slam"]
-# 	path = odin_slam
-# 	url = https://github.com/SUSTech-Algorithm/odin_slam.git
+[submodule "odin_slam"]
+	path = odin_slam
+	url = https://github.com/SUSTech-Algorithm/odin_slam.git
 # [submodule "nav2_simple_ws"]
 # 	path = nav2_simple_ws
 # 	url = https://github.com/gsp999/nav2_simple_ws.git

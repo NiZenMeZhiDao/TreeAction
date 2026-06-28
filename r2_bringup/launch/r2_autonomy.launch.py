@@ -38,8 +38,8 @@ def generate_launch_description():
 
     default_region_arg = DeclareLaunchArgument(
         'default_region',
-        default_value='full',
-        description='Default region shown in /bt_engine/status before service start')
+        default_value='',
+        description='Default region for /bt_engine/start_autonomy. Empty follows startup_profile')
 
     autostart_arg = DeclareLaunchArgument(
         'autostart',
@@ -88,7 +88,7 @@ def generate_launch_description():
 
     tool_timeout_arg = DeclareLaunchArgument(
         'tool_completion_timeout_ms',
-        default_value='15000',
+        default_value='60000',
         description='ARES tool service completion timeout in milliseconds')
 
     pick_use_synthetic_arg = DeclareLaunchArgument(
@@ -109,7 +109,17 @@ def generate_launch_description():
     ])
     tree_file = PythonExpression([
         "'prepare_area.xml' if '", LaunchConfiguration('startup_profile'),
-        "' == 'prepare' else 'full_match.xml'"
+        "' == 'prepare' else ('meilin_stage.xml' if '",
+        LaunchConfiguration('startup_profile'),
+        "' == 'minimal_meilin' else 'full_match.xml')"
+    ])
+    default_region = PythonExpression([
+        "'", LaunchConfiguration('default_region'), "' if '",
+        LaunchConfiguration('default_region'), "' else ('prepare' if '",
+        LaunchConfiguration('startup_profile'),
+        "' == 'prepare' else ('meilin' if '",
+        LaunchConfiguration('startup_profile'),
+        "' == 'minimal_meilin' else 'full'))"
     ])
 
     odin_launch = IncludeLaunchDescription(
@@ -215,7 +225,7 @@ def generate_launch_description():
             'meilin_pose_topic': LaunchConfiguration('relocation_topic'),
             'autostart': ParameterValue(
                 LaunchConfiguration('autostart'), value_type=bool),
-            'default_region': LaunchConfiguration('default_region'),
+            'default_region': default_region,
             'require_map_relocalization': ParameterValue(
                 LaunchConfiguration('require_map_relocalization'), value_type=bool),
             'localization_timeout_sec': ParameterValue(

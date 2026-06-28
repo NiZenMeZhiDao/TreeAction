@@ -16,7 +16,8 @@ r2_full.launch.py — 真实机器人全系统启动
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -74,8 +75,23 @@ def generate_launch_description():
 
     tool_timeout_arg = DeclareLaunchArgument(
         'tool_completion_timeout_ms',
-        default_value='15000',
+        default_value='60000',
         description='ARES tool service completion timeout in milliseconds')
+
+    pick_use_synthetic_arg = DeclareLaunchArgument(
+        'pick_use_synthetic',
+        default_value='false',
+        description='Use synthetic LiDAR scan for pick_action testing')
+
+    pick_lidar_port_arg = DeclareLaunchArgument(
+        'pick_lidar_port',
+        default_value='/dev/ttyUSB0',
+        description='STL-27L serial device used by pick_action when synthetic mode is false')
+
+    pick_expected_count_arg = DeclareLaunchArgument(
+        'pick_expected_count',
+        default_value='3',
+        description='Number of spear targets expected by pick_action recognition')
 
     return LaunchDescription([
         tree_file_arg,
@@ -88,6 +104,9 @@ def generate_launch_description():
         tool_vid_arg,
         tool_pid_arg,
         tool_timeout_arg,
+        pick_use_synthetic_arg,
+        pick_lidar_port_arg,
+        pick_expected_count_arg,
 
         # ---- 底层: USB 桥接 (下位机通信) ----
         Node(
@@ -118,6 +137,20 @@ def generate_launch_description():
             executable='multi_serial_node',
             name='multi_serial_node',
             output='screen',
+        ),
+
+        # ---- Action Server: 矛头识别与夹取流程 (/pick_action) ----
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('pick_action'),
+                'launch',
+                'pick_action.launch.py',
+            ])),
+            launch_arguments={
+                'port_name': LaunchConfiguration('pick_lidar_port'),
+                'use_synthetic': LaunchConfiguration('pick_use_synthetic'),
+                'expected_count': LaunchConfiguration('pick_expected_count'),
+            }.items(),
         ),
 
         # ---- Action Server: 底盘微调 ----

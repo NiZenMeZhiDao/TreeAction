@@ -1,14 +1,14 @@
 prepare_area:
   points:
     spear_pickup:
-      x: 2.29
-      y: -0.68
-      yaw: 94.5
+      x: 0.34
+      y: -0.63
+      yaw: 1.6493
       frame_id: "map"
     dock_standby:
-      x: -0.15
+      x: -0.00
       y: 0.76
-      yaw: -178.6
+      yaw: -3.1172
       frame_id: "map"
 
   motion:
@@ -25,6 +25,6 @@ prepare_area:
   spear_tool:
     service_name: "/ares_tool_node/tool_action"
     dock_extend_action: "dock_extend"
-    dock_extend_timeout_sec: 60.0
+    dock_extend_timeout_sec: 70.0
     retry_attempts: 3
     args: [0.0, 0.0, 0.0, 0.0]

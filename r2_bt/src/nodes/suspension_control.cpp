@@ -35,8 +35,7 @@ BT::NodeStatus SuspensionControl::onStart()
 
   if (!node_)
   {
-    node_ = config().blackboard->get<rclcpp::Node::SharedPtr>("ros_node");
-    if (!node_)
+    if (!config().blackboard->rootBlackboard()->get("ros_node", node_) || !node_)
     {
       setOutput("message", "Missing ros_node on blackboard");
       return BT::NodeStatus::FAILURE;

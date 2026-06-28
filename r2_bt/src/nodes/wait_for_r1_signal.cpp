@@ -23,8 +23,7 @@ BT::NodeStatus WaitForR1Signal::tick()
   // 首次 tick 初始化
   if (!node_)
   {
-    node_ = config().blackboard->get<rclcpp::Node::SharedPtr>("ros_node");
-    if (!node_)
+    if (!config().blackboard->rootBlackboard()->get("ros_node", node_) || !node_)
     {
       RCLCPP_ERROR(rclcpp::get_logger("WaitForR1Signal"), "Missing ros_node on blackboard");
       return BT::NodeStatus::FAILURE;

@@ -22,16 +22,16 @@
   <!-- ========== 顶层 ========== -->
   <BehaviorTree ID="FullMatch">
     <Sequence>
-      <SubTree ID="PrepareArea" />
-      <SubTree ID="MeilinArea"  />
-      <SubTree ID="FinalArea"   />
+      <SubTree ID="PrepareArea" _autoremap="1" />
+      <SubTree ID="MeilinArea" _autoremap="1" />
+      <SubTree ID="FinalArea" _autoremap="1" />
       <SetDebugStatus execution_state="MISSION_SUCCESS" active_action="" last_error=""/>
     </Sequence>
   </BehaviorTree>
 
   <!-- ====== 准备区：调用 /pick_action 夹取矛头，然后并行移动到对接待定区与 dock_extend ====== -->
   <BehaviorTree ID="PrepareArea">
-    <Sequence>
+    <SequenceWithMemory>
 
       <Sequence name="PREPARE_01_MOVE_TO_SPEAR_PICKUP">
         <RetrySegment num_attempts="{prepare_motion_retry_attempts}">
@@ -79,7 +79,7 @@
         </RetrySegment>
       </Parallel>
 
-    </Sequence>
+    </SequenceWithMemory>
   </BehaviorTree>
 
   <!-- ====== 梅林区：直接消费 /mf_action_seq 解析出的 move/fetch 队列 ====== -->

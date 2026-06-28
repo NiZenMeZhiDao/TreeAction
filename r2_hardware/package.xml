@@ -8,6 +8,8 @@
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
   <depend>r2_interfaces</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>

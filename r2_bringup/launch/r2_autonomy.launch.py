@@ -7,7 +7,7 @@ r2_autonomy.launch.py — 真机全自动分阶段启动
   ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=prepare
 
 startup_profile:
-  full / prepare / minimal_meilin
+  full / prepare / minimal_meilin / final
 """
 
 from launch import LaunchDescription
@@ -24,17 +24,18 @@ def generate_launch_description():
     startup_profile_arg = DeclareLaunchArgument(
         'startup_profile',
         default_value='full',
-        description='Startup profile: full, prepare, or minimal_meilin')
+        description='Startup profile: full, prepare, minimal_meilin, or final')
 
     match_config_arg = DeclareLaunchArgument(
         'match_config',
         default_value='',
-        description='Match config under r2_bt/config, for example config/match_blue.json')
+        description='Legacy match JSON under r2_bt/config. Prefer param_config for new flow.')
 
     param_config_arg = DeclareLaunchArgument(
         'param_config',
         default_value='config/param.yaml',
-        description='Parameter YAML under r2_bt/config. Currently used by PrepareArea')
+        description='Area parameter YAML under r2_bt/config, for example '
+                    'config/param_blue.yaml or config/param_red.yaml')
 
     default_region_arg = DeclareLaunchArgument(
         'default_region',
@@ -91,26 +92,6 @@ def generate_launch_description():
         default_value='60000',
         description='ARES tool service completion timeout in milliseconds')
 
-    is_red_zone_arg = DeclareLaunchArgument(
-        'is_red_zone',
-        default_value='false',
-        description='Whether Meilin area uses the red-side height map')
-
-    grid_size_arg = DeclareLaunchArgument(
-        'grid_size',
-        default_value='1.2',
-        description='Meilin grid cell size in meters')
-
-    grid_origin_arg = DeclareLaunchArgument(
-        'grid_origin',
-        default_value='[2.14, 0.49]',
-        description='Meilin grid origin [x, y] in map frame')
-
-    grasp_distance_arg = DeclareLaunchArgument(
-        'grasp_distance',
-        default_value='0.4',
-        description='Vehicle distance to cell edge during Meilin fetch')
-
     pick_use_synthetic_arg = DeclareLaunchArgument(
         'pick_use_synthetic',
         default_value='true',
@@ -132,11 +113,17 @@ def generate_launch_description():
     meilin_or_full_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'), "' in ['minimal_meilin', 'full']"
     ])
+    sensor_profile = PythonExpression([
+        "'", LaunchConfiguration('startup_profile'),
+        "' in ['prepare', 'minimal_meilin', 'full']"
+    ])
     tree_file = PythonExpression([
         "'prepare_area.xml' if '", LaunchConfiguration('startup_profile'),
         "' == 'prepare' else ('meilin_stage.xml' if '",
         LaunchConfiguration('startup_profile'),
-        "' == 'minimal_meilin' else 'full_match.xml')"
+        "' == 'minimal_meilin' else ('final_area.xml' if '",
+        LaunchConfiguration('startup_profile'),
+        "' == 'final' else 'full_match.xml'))"
     ])
     default_region = PythonExpression([
         "'", LaunchConfiguration('default_region'), "' if '",
@@ -144,7 +131,9 @@ def generate_launch_description():
         LaunchConfiguration('startup_profile'),
         "' == 'prepare' else ('meilin' if '",
         LaunchConfiguration('startup_profile'),
-        "' == 'minimal_meilin' else 'full'))"
+        "' == 'minimal_meilin' else ('final' if '",
+        LaunchConfiguration('startup_profile'),
+        "' == 'final' else 'full'))"
     ])
 
     odin_launch = IncludeLaunchDescription(
@@ -194,6 +183,7 @@ def generate_launch_description():
     )
 
     multi_serial_node = Node(
+        condition=IfCondition(sensor_profile),
         package='multi_serial_sensor',
         executable='multi_serial_node',
         name='multi_serial_node',
@@ -248,13 +238,6 @@ def generate_launch_description():
             'mf_action_topic': '/mf_action_seq',
             'buffer_service': '/get_action_seq',
             'meilin_pose_topic': LaunchConfiguration('relocation_topic'),
-            'meilin_grid_size': LaunchConfiguration('grid_size'),
-            'meilin_grid_origin': LaunchConfiguration('grid_origin'),
-            'meilin_grasp_distance': LaunchConfiguration('grasp_distance'),
-            'meilin_side': PythonExpression([
-                "'red' if '", LaunchConfiguration('is_red_zone'),
-                "' == 'true' else 'blue'"
-            ]),
             'autostart': ParameterValue(
                 LaunchConfiguration('autostart'), value_type=bool),
             'default_region': default_region,
@@ -280,10 +263,6 @@ def generate_launch_description():
         tool_vid_arg,
         tool_pid_arg,
         tool_timeout_arg,
-        is_red_zone_arg,
-        grid_size_arg,
-        grid_origin_arg,
-        grasp_distance_arg,
         pick_use_synthetic_arg,
         pick_lidar_port_arg,
         pick_expected_count_arg,

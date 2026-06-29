@@ -4,16 +4,16 @@ bt_engine.launch.py — BT 决策引擎启动
 
 启动示例:
   # 红方全场
-  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param.yaml match_config:=config/match_red.json
+  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param_red.yaml
 
   # 蓝方全场
-  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param.yaml match_config:=config/match_blue.json
+  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param_blue.yaml
 
   # 美林赛段独立调试（不需要 match_config）
   ros2 launch r2_bt bt_engine.launch.py tree_file:=meilin_stage.xml
 
   # 自定义 Groot2 端口
-  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param.yaml match_config:=config/match_red.json groot2_port:=1668
+  ros2 launch r2_bt bt_engine.launch.py param_config:=config/param_red.yaml groot2_port:=1668
 """
 
 from launch import LaunchDescription
@@ -33,15 +33,15 @@ def generate_launch_description():
     match_config_arg = DeclareLaunchArgument(
         'match_config',
         default_value='',
-        description='比赛配置文件 (位于 r2_bt/config/ 目录下): '
+        description='旧版比赛 JSON 配置文件 (位于 r2_bt/config/ 目录下): '
                     'config/match_red.json / config/match_blue.json。'
-                    '留空则跳过旧配置加载，FinalArea 需自行设置 blackboard 变量。')
+                    '新流程推荐留空并使用 param_config。')
 
     param_config_arg = DeclareLaunchArgument(
         'param_config',
         default_value='config/param.yaml',
-        description='参数 YAML 文件 (位于 r2_bt/config/ 目录下): '
-                    'config/param.yaml。目前用于 PrepareArea。')
+        description='全区域参数 YAML 文件 (位于 r2_bt/config/ 目录下): '
+                    'config/param_blue.yaml / config/param_red.yaml。')
 
     groot2_port_arg = DeclareLaunchArgument(
         'groot2_port',

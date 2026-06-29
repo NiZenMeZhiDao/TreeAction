@@ -1,6 +1,3 @@
-# Default debug config. Official match launches should pass param_blue.yaml
-# or param_red.yaml explicitly via param_config.
-
 match:
   side: "blue"
 

@@ -2,19 +2,41 @@
 <!--
   final_area.xml — 竞技/终局局部执行树
 
-  只执行 FinalArea deck 控制流程。固定参数来自 match_config 的 final.* 字段。
+  只执行 FinalArea deck 控制流程。固定参数来自 param_config 的 final_area.* 字段。
 -->
 <root BTCPP_format="4" main_tree_to_execute="FinalArea">
   <BehaviorTree ID="FinalArea">
     <Sequence>
 
-      <Sequence name="FINAL_00_NAV2_TO_STANDBY">
+      <Sequence name="FINAL_00_MOVE_TO_STANDBY_WAYPOINTS">
         <RetrySegment num_attempts="3">
-          <GoToPose target_x="{final_standby_target_x}"
-                    target_y="{final_standby_target_y}"
-                    target_yaw="{final_standby_target_yaw}"
-                    timeout_sec="{final_standby_timeout_sec}"
-                    message="{last_error}"/>
+          <MoveToPose target_x="{final_standby_wp1_target_x}"
+                      target_y="{final_standby_wp1_target_y}"
+                      target_yaw="{final_standby_wp1_target_yaw}"
+                      max_speed="{final_standby_wp1_max_speed}"
+                      pid_profile="{final_standby_wp1_pid_profile}"
+                      timeout_sec="{final_standby_wp1_timeout_sec}"
+                      error_msg="{last_error}"/>
+        </RetrySegment>
+
+        <RetrySegment num_attempts="3">
+          <MoveToPose target_x="{final_standby_wp2_target_x}"
+                      target_y="{final_standby_wp2_target_y}"
+                      target_yaw="{final_standby_wp2_target_yaw}"
+                      max_speed="{final_standby_wp2_max_speed}"
+                      pid_profile="{final_standby_wp2_pid_profile}"
+                      timeout_sec="{final_standby_wp2_timeout_sec}"
+                      error_msg="{last_error}"/>
+        </RetrySegment>
+
+        <RetrySegment num_attempts="3">
+          <MoveToPose target_x="{final_standby_wp3_target_x}"
+                      target_y="{final_standby_wp3_target_y}"
+                      target_yaw="{final_standby_wp3_target_yaw}"
+                      max_speed="{final_standby_wp3_max_speed}"
+                      pid_profile="{final_standby_wp3_pid_profile}"
+                      timeout_sec="{final_standby_wp3_timeout_sec}"
+                      error_msg="{last_error}"/>
         </RetrySegment>
       </Sequence>
 
@@ -52,19 +74,31 @@
           <SwitchSegmentType segment_type="{final_flow}">
 
             <Sequence name="LAYER2">
-              <PlaceObjectPlaceholder layer="{final_layer}"
-                                      column="{final_column}"
-                                      place_index="1"
-                                      message="{last_error}"/>
+              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
+                <AresToolAction action="{final_place_mid_action}"
+                                service_name="{final_place_action_service_name}"
+                                timeout_sec="{final_place_action_timeout_sec}"
+                                arg0="{final_place_action_arg0}"
+                                arg1="{final_place_action_arg1}"
+                                arg2="{final_place_action_arg2}"
+                                arg3="{final_place_action_arg3}"
+                                message="{last_error}"/>
+              </RetrySegment>
               <WaitForIntSignal signal_topic="{final_deck_topic}"
                                 expected_value="{final_place_signal}"
                                 timeout_sec="{final_place_signal_timeout_sec}"
                                 received_value="{final_place_received_signal}"
                                 message="{last_error}"/>
-              <PlaceObjectPlaceholder layer="{final_layer}"
-                                      column="{final_column}"
-                                      place_index="2"
-                                      message="{last_error}"/>
+              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
+                <AresToolAction action="{final_place_mid_action}"
+                                service_name="{final_place_action_service_name}"
+                                timeout_sec="{final_place_action_timeout_sec}"
+                                arg0="{final_place_action_arg0}"
+                                arg1="{final_place_action_arg1}"
+                                arg2="{final_place_action_arg2}"
+                                arg3="{final_place_action_arg3}"
+                                message="{last_error}"/>
+              </RetrySegment>
             </Sequence>
 
             <Sequence name="LAYER3">
@@ -73,10 +107,16 @@
                                 timeout_sec="{final_place_signal_timeout_sec}"
                                 received_value="{final_place_received_signal}"
                                 message="{last_error}"/>
-              <PlaceObjectPlaceholder layer="{final_layer}"
-                                      column="{final_column}"
-                                      place_index="1"
-                                      message="{last_error}"/>
+              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
+                <AresToolAction action="{final_place_high_action}"
+                                service_name="{final_place_action_service_name}"
+                                timeout_sec="{final_place_action_timeout_sec}"
+                                arg0="{final_place_action_arg0}"
+                                arg1="{final_place_action_arg1}"
+                                arg2="{final_place_action_arg2}"
+                                arg3="{final_place_action_arg3}"
+                                message="{last_error}"/>
+              </RetrySegment>
             </Sequence>
 
             <Sequence name="default">
@@ -89,11 +129,13 @@
           <WaitSeconds seconds="{final_post_place_wait_sec}"/>
 
           <RetrySegment num_attempts="3">
-            <GoToPose target_x="{final_standby_target_x}"
-                      target_y="{final_standby_target_y}"
-                      target_yaw="{final_standby_target_yaw}"
-                      timeout_sec="{final_standby_timeout_sec}"
-                      message="{last_error}"/>
+            <MoveToPose target_x="{final_standby_target_x}"
+                        target_y="{final_standby_target_y}"
+                        target_yaw="{final_standby_target_yaw}"
+                        max_speed="{final_standby_max_speed}"
+                        pid_profile="{final_standby_pid_profile}"
+                        timeout_sec="{final_standby_timeout_sec}"
+                        error_msg="{last_error}"/>
           </RetrySegment>
 
         </Sequence>

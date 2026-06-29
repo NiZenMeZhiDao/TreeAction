@@ -191,7 +191,7 @@ public:
     blackboard_->set("meilin_pose_last_update_sec", 0.0);
     blackboard_->set("meilin_pose_frame_id", std::string{});
 
-    // 加载准备区和比赛配置（PrepareArea/FinalArea 的固定参数）
+    // 加载全区域 YAML 参数；match_config 仅作为旧 JSON 覆盖入口保留。
     load_param_config();
     if (!match_config_.empty())
     {
@@ -199,9 +199,8 @@ public:
     }
     else
     {
-      RCLCPP_WARN(get_logger(),
-                  "No match_config provided. PrepareArea and FinalArea use named "
-                  "blackboard variables — ensure they are set before tick.");
+      RCLCPP_INFO(get_logger(),
+                  "No legacy match_config provided; using param_config for area params.");
     }
 
     prewarm_ros_clients();
@@ -299,6 +298,8 @@ private:
       return "prepare_area.xml";
     if (region == "meilin" || region == "minimal_meilin" || region == "meilin_stage")
       return "meilin_stage.xml";
+    if (region == "final" || region == "final_area")
+      return "final_area.xml";
     return {};
   }
 
@@ -312,6 +313,12 @@ private:
   {
     return region == "meilin" || region == "minimal_meilin" ||
            region == "meilin_stage" || region == "full" || region == "full_match";
+  }
+
+  static bool region_needs_final(const std::string& region)
+  {
+    return region == "final" || region == "final_area" ||
+           region == "full" || region == "full_match";
   }
 
   bool append_if_missing(bool ready, const std::string& name,
@@ -336,6 +343,9 @@ private:
     const bool tool_service_name_loaded =
         blackboard_->get("prepare_spear_tool_service_name", tool_service_name);
     (void)tool_service_name_loaded;
+    const bool final_tool_service_name_loaded =
+        blackboard_->get("final_place_action_service_name", tool_service_name);
+    (void)final_tool_service_name_loaded;
 
     move_to_pose_client_ =
         rclcpp_action::create_client<MoveToPoseAction>(
@@ -381,8 +391,9 @@ private:
 
     const bool needs_prepare = region_needs_prepare(region);
     const bool needs_meilin = region_needs_meilin(region);
+    const bool needs_final = region_needs_final(region);
 
-    if (needs_prepare || needs_meilin)
+    if (needs_prepare || needs_meilin || needs_final)
     {
       append_if_missing(move_to_pose_client_ && move_to_pose_client_->action_server_is_ready(),
                         "/move_to_pose action", missing);
@@ -430,6 +441,12 @@ private:
                             meilin_pose_topic_ + " frame_id=map", missing);
         }
       }
+    }
+
+    if (needs_final && !needs_prepare && !needs_meilin)
+    {
+      append_if_missing(tool_client_ && tool_client_->service_is_ready(),
+                        "/ares_tool_node/tool_action service", missing);
     }
 
     return missing;
@@ -586,7 +603,7 @@ private:
     prepare_config_loaded_ = false;
     if (param_config_.empty())
     {
-      RCLCPP_WARN(get_logger(), "No param_config provided. PrepareArea params not loaded.");
+      RCLCPP_WARN(get_logger(), "No param_config provided. Area params not loaded.");
       return;
     }
 
@@ -604,6 +621,13 @@ private:
       blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
       blackboard_->set("last_error",
                        std::string{"Failed to parse param config YAML: "} + e.what());
+      return;
+    }
+
+    load_match_section(cfg["match"]);
+    load_meilin_area_config(cfg["meilin_area"]);
+    if (!load_final_area_config(cfg["final_area"]))
+    {
       return;
     }
 
@@ -687,6 +711,239 @@ private:
                 "parallel(dock standby, dock_extend)");
   }
 
+  void load_match_section(const YAML::Node& match)
+  {
+    if (!match)
+    {
+      RCLCPP_WARN(get_logger(), "Param config missing optional field: match.");
+      return;
+    }
+
+    const auto side = yaml_value<std::string>(match, "side", meilin_side_);
+    if (side == "red" || side == "blue")
+    {
+      meilin_side_ = side;
+      if (auto cfg_ptr = blackboard_->get<r2_bt::MeilinConfigPtr>("meilin_config"))
+      {
+        cfg_ptr->side = side;
+      }
+      RCLCPP_INFO(get_logger(), "Param config match.side: %s", side.c_str());
+    }
+    else
+    {
+      RCLCPP_WARN(get_logger(), "Ignoring invalid param_config match.side: %s",
+                  side.c_str());
+    }
+  }
+
+  void load_meilin_area_config(const YAML::Node& meilin)
+  {
+    if (!meilin)
+    {
+      RCLCPP_WARN(get_logger(), "Param config missing optional field: meilin_area.");
+      return;
+    }
+
+    meilin_grid_size_ = yaml_value<double>(meilin, "grid_size", meilin_grid_size_);
+    meilin_initial_height_ =
+        yaml_value<double>(meilin, "initial_height", meilin_initial_height_);
+    meilin_initial_yaw_ = r2_bt::meilin_normalize_angle(
+        yaml_value<double>(meilin, "initial_yaw", meilin_initial_yaw_));
+    meilin_grasp_distance_ =
+        yaml_value<double>(meilin, "grasp_distance", meilin_grasp_distance_);
+    meilin_yaw_tolerance_ =
+        yaml_value<double>(meilin, "yaw_tolerance", meilin_yaw_tolerance_);
+    meilin_height_tolerance_ =
+        yaml_value<double>(meilin, "height_tolerance", meilin_height_tolerance_);
+    meilin_pose_timeout_sec_ =
+        yaml_value<double>(meilin, "pose_timeout_sec", meilin_pose_timeout_sec_);
+    meilin_cell_center_tolerance_ =
+        yaml_value<double>(meilin, "cell_center_tolerance", meilin_cell_center_tolerance_);
+    meilin_default_align_timeout_ =
+        yaml_value<double>(meilin, "default_align_timeout", meilin_default_align_timeout_);
+    meilin_default_suspension_timeout_ =
+        yaml_value<double>(meilin, "default_suspension_timeout",
+                           meilin_default_suspension_timeout_);
+    meilin_default_grasp_timeout_ =
+        yaml_value<double>(meilin, "default_grasp_timeout", meilin_default_grasp_timeout_);
+    meilin_suspension_normal_height_ =
+        yaml_value<double>(meilin, "suspension_normal_height",
+                           meilin_suspension_normal_height_);
+
+    const auto origin = yaml_double_vector(meilin["grid_origin"]);
+    if (origin.size() >= 2)
+    {
+      meilin_origin_x_ = origin[0];
+      meilin_origin_y_ = origin[1];
+    }
+
+    const auto initial_grid = yaml_int_vector(meilin["initial_grid"]);
+    if (initial_grid.size() >= 2)
+    {
+      meilin_initial_row_ = static_cast<int>(initial_grid[0]);
+      meilin_initial_col_ = static_cast<int>(initial_grid[1]);
+    }
+
+    sync_meilin_blackboard();
+    RCLCPP_INFO(get_logger(),
+                "Meilin params loaded from param_config: side=%s, grid=%.3f, "
+                "origin=(%.3f, %.3f), initial=(%d, %d)",
+                meilin_side_.c_str(), meilin_grid_size_,
+                meilin_origin_x_, meilin_origin_y_,
+                meilin_initial_row_, meilin_initial_col_);
+  }
+
+  bool load_final_area_config(const YAML::Node& final_cfg)
+  {
+    if (!final_cfg)
+    {
+      RCLCPP_WARN(get_logger(), "Param config missing optional field: final_area.");
+      return true;
+    }
+
+    const auto standby = final_cfg["standby"];
+    const auto targets = final_cfg["targets"];
+    if (!standby || !targets)
+    {
+      blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+      blackboard_->set("last_error",
+                       std::string{"Param config missing final_area.standby/targets"});
+      RCLCPP_ERROR(get_logger(),
+                   "Param config missing one of: final_area.standby, final_area.targets.");
+      return false;
+    }
+
+    blackboard_->set("final_deck_topic",
+                     yaml_value<std::string>(
+                         final_cfg, "deck_topic", "/aruco_comm/tx_id"));
+    blackboard_->set("final_place_signal",
+                     yaml_value<int>(final_cfg, "place_signal", 7));
+    blackboard_->set("final_command_timeout_sec",
+                     yaml_value<double>(final_cfg, "command_timeout_sec", 0.0));
+    blackboard_->set("final_place_signal_timeout_sec",
+                     yaml_value<double>(
+                         final_cfg, "place_signal_timeout_sec", 0.0));
+    blackboard_->set("final_post_place_wait_sec",
+                     yaml_value<double>(final_cfg, "post_place_wait_sec", 3.0));
+    const double standby_x = yaml_value<double>(standby, "target_x", 0.0);
+    const double standby_y = yaml_value<double>(standby, "target_y", 0.0);
+    const double standby_yaw = yaml_value<double>(standby, "target_yaw", 0.0);
+    const double standby_max_speed = yaml_value<double>(standby, "max_speed", 0.4);
+    const int standby_pid_profile = yaml_value<int>(standby, "pid_profile", 1);
+    const double standby_timeout_sec = yaml_value<double>(standby, "timeout_sec", 60.0);
+    blackboard_->set("final_standby_target_x",
+                     standby_x);
+    blackboard_->set("final_standby_target_y",
+                     standby_y);
+    blackboard_->set("final_standby_target_yaw",
+                     standby_yaw);
+    blackboard_->set("final_standby_max_speed",
+                     standby_max_speed);
+    blackboard_->set("final_standby_pid_profile",
+                     standby_pid_profile);
+    blackboard_->set("final_standby_timeout_sec",
+                     standby_timeout_sec);
+
+    const double side_sign = standby_y < 0.0 ? -1.0 : 1.0;
+    const auto standby_waypoints = final_cfg["standby_waypoints"];
+    load_final_waypoint("final_standby_wp1_", standby_waypoints && standby_waypoints.size() > 0
+                                                   ? standby_waypoints[0] : YAML::Node{},
+                        7.80, side_sign * 0.60, standby_yaw, 0.4, 1, 30.0);
+    load_final_waypoint("final_standby_wp2_", standby_waypoints && standby_waypoints.size() > 1
+                                                   ? standby_waypoints[1] : YAML::Node{},
+                        8.60, side_sign * 1.00, standby_yaw, 0.4, 1, 30.0);
+    load_final_waypoint("final_standby_wp3_", standby_waypoints && standby_waypoints.size() > 2
+                                                   ? standby_waypoints[2] : YAML::Node{},
+                        standby_x, standby_y, standby_yaw,
+                        standby_max_speed, standby_pid_profile, standby_timeout_sec);
+
+    const auto place_action = final_cfg["place_action"];
+    blackboard_->set("final_place_action_service_name",
+                     yaml_value<std::string>(
+                         place_action, "service_name", "/ares_tool_node/tool_action"));
+    blackboard_->set("final_place_mid_action",
+                     yaml_value<std::string>(place_action, "mid_action", "arm_place_mid"));
+    blackboard_->set("final_place_high_action",
+                     yaml_value<std::string>(place_action, "high_action", "arm_place_high"));
+    blackboard_->set("final_place_action_timeout_sec",
+                     yaml_value<double>(place_action, "timeout_sec", 30.0));
+    blackboard_->set("final_place_action_retry_attempts",
+                     yaml_value<int>(place_action, "retry_attempts", 3));
+    std::array<double, 4> place_args{0.0, 0.0, 0.0, 0.0};
+    const auto place_args_node = place_action["args"];
+    if (place_args_node && place_args_node.IsSequence())
+    {
+      for (std::size_t i = 0; i < place_args.size() && i < place_args_node.size(); ++i)
+      {
+        place_args[i] = place_args_node[i].as<double>();
+      }
+    }
+    blackboard_->set("final_place_action_arg0", place_args[0]);
+    blackboard_->set("final_place_action_arg1", place_args[1]);
+    blackboard_->set("final_place_action_arg2", place_args[2]);
+    blackboard_->set("final_place_action_arg3", place_args[3]);
+
+    for (const auto& key : {"2_left", "2_mid", "2_right",
+                            "3_left", "3_mid", "3_right"})
+    {
+      const auto target = targets[key];
+      if (!target)
+      {
+        blackboard_->set("execution_state", std::string{"CONFIG_ERROR"});
+        blackboard_->set("last_error",
+                         std::string{"Missing final target config: "} + key);
+        RCLCPP_ERROR(get_logger(), "Param config missing final_area.targets.%s", key);
+        return false;
+      }
+      const std::string prefix = "final_target_" + std::string{key} + "_";
+      blackboard_->set(prefix + "target_x",
+                       yaml_value<double>(target, "target_x", 0.0));
+      blackboard_->set(prefix + "target_y",
+                       yaml_value<double>(target, "target_y", 0.0));
+      blackboard_->set(prefix + "target_yaw",
+                       yaml_value<double>(target, "target_yaw", 0.0));
+      blackboard_->set(prefix + "max_speed",
+                       yaml_value<double>(target, "max_speed", 0.4));
+      blackboard_->set(prefix + "pid_profile",
+                       yaml_value<int>(target, "pid_profile", 1));
+      blackboard_->set(prefix + "timeout_sec",
+                       yaml_value<double>(target, "timeout_sec", 30.0));
+    }
+
+    blackboard_->set("execution_state", std::string{"CONFIG_LOADED"});
+    RCLCPP_INFO(get_logger(), "FinalArea params loaded from param_config.");
+    return true;
+  }
+
+  void sync_meilin_blackboard()
+  {
+    if (auto cfg_ptr = blackboard_->get<r2_bt::MeilinConfigPtr>("meilin_config"))
+    {
+      cfg_ptr->side = meilin_side_;
+      cfg_ptr->grid_size = meilin_grid_size_;
+      cfg_ptr->grid_origin_x = meilin_origin_x_;
+      cfg_ptr->grid_origin_y = meilin_origin_y_;
+      cfg_ptr->grasp_distance = meilin_grasp_distance_;
+      cfg_ptr->yaw_tolerance = meilin_yaw_tolerance_;
+      cfg_ptr->height_tolerance = meilin_height_tolerance_;
+      cfg_ptr->align_timeout_sec = meilin_default_align_timeout_;
+      cfg_ptr->suspension_timeout_sec = meilin_default_suspension_timeout_;
+      cfg_ptr->arm_timeout_sec = meilin_default_grasp_timeout_;
+      cfg_ptr->suspension_normal_height = meilin_suspension_normal_height_;
+      cfg_ptr->pose_timeout_sec = meilin_pose_timeout_sec_;
+      cfg_ptr->cell_center_tolerance = meilin_cell_center_tolerance_;
+      cfg_ptr->rows = meilin_rows_;
+      cfg_ptr->cols = meilin_cols_;
+    }
+
+    blackboard_->set("meilin_current_row", meilin_initial_row_);
+    blackboard_->set("meilin_current_col", meilin_initial_col_);
+    blackboard_->set("meilin_current_height", meilin_initial_height_);
+    blackboard_->set("meilin_current_yaw", meilin_initial_yaw_);
+    blackboard_->set("meilin_pose_is_cell_center", true);
+    blackboard_->set("meilin_suspension_offset", 0.0);
+  }
+
   void load_prepare_point(const std::string& prefix, const YAML::Node& node)
   {
     blackboard_->set(prefix + "target_x", yaml_value<double>(node, "x", 0.0));
@@ -696,17 +953,72 @@ private:
                      yaml_value<std::string>(node, "frame_id", "map"));
   }
 
+  void load_final_waypoint(const std::string& prefix,
+                           const YAML::Node& node,
+                           double fallback_x,
+                           double fallback_y,
+                           double fallback_yaw,
+                           double fallback_max_speed,
+                           int fallback_pid_profile,
+                           double fallback_timeout_sec)
+  {
+    blackboard_->set(prefix + "target_x",
+                     yaml_value<double>(node, "target_x", fallback_x));
+    blackboard_->set(prefix + "target_y",
+                     yaml_value<double>(node, "target_y", fallback_y));
+    blackboard_->set(prefix + "target_yaw",
+                     yaml_value<double>(node, "target_yaw", fallback_yaw));
+    blackboard_->set(prefix + "max_speed",
+                     yaml_value<double>(node, "max_speed", fallback_max_speed));
+    blackboard_->set(prefix + "pid_profile",
+                     yaml_value<int>(node, "pid_profile", fallback_pid_profile));
+    blackboard_->set(prefix + "timeout_sec",
+                     yaml_value<double>(node, "timeout_sec", fallback_timeout_sec));
+  }
+
   template <typename T>
   static T yaml_value(const YAML::Node& node,
                       const std::string& key,
                       const T& fallback)
   {
+    if (!node)
+    {
+      return fallback;
+    }
     const auto child = node[key];
     if (!child)
     {
       return fallback;
     }
     return child.as<T>();
+  }
+
+  static std::vector<double> yaml_double_vector(const YAML::Node& node)
+  {
+    std::vector<double> result;
+    if (!node || !node.IsSequence())
+    {
+      return result;
+    }
+    for (const auto& item : node)
+    {
+      result.push_back(item.as<double>());
+    }
+    return result;
+  }
+
+  static std::vector<int64_t> yaml_int_vector(const YAML::Node& node)
+  {
+    std::vector<int64_t> result;
+    if (!node || !node.IsSequence())
+    {
+      return result;
+    }
+    for (const auto& item : node)
+    {
+      result.push_back(item.as<int64_t>());
+    }
+    return result;
   }
 
   void load_match_config()
@@ -771,12 +1083,55 @@ private:
     blackboard_->set("final_place_signal_timeout_sec",
                      final_cfg.value("place_signal_timeout_sec", 0.0));
     blackboard_->set("final_post_place_wait_sec",
-                     final_cfg.value("post_place_wait_sec", 1.0));
-    blackboard_->set("final_standby_target_x", standby.value("target_x", 0.0));
-    blackboard_->set("final_standby_target_y", standby.value("target_y", 0.0));
-    blackboard_->set("final_standby_target_yaw", standby.value("target_yaw", 0.0));
-    blackboard_->set("final_standby_timeout_sec",
-                     standby.value("timeout_sec", 60.0));
+                     final_cfg.value("post_place_wait_sec", 3.0));
+
+    const double standby_x = standby.value("target_x", 0.0);
+    const double standby_y = standby.value("target_y", 0.0);
+    const double standby_yaw = standby.value("target_yaw", 0.0);
+    const double standby_max_speed = standby.value("max_speed", 0.4);
+    const int standby_pid_profile = standby.value("pid_profile", 1);
+    const double standby_timeout_sec = standby.value("timeout_sec", 60.0);
+    blackboard_->set("final_standby_target_x", standby_x);
+    blackboard_->set("final_standby_target_y", standby_y);
+    blackboard_->set("final_standby_target_yaw", standby_yaw);
+    blackboard_->set("final_standby_max_speed", standby_max_speed);
+    blackboard_->set("final_standby_pid_profile", standby_pid_profile);
+    blackboard_->set("final_standby_timeout_sec", standby_timeout_sec);
+
+    const double side_sign = standby_y < 0.0 ? -1.0 : 1.0;
+    blackboard_->set("final_standby_wp1_target_x", 7.80);
+    blackboard_->set("final_standby_wp1_target_y", side_sign * 0.60);
+    blackboard_->set("final_standby_wp1_target_yaw", standby_yaw);
+    blackboard_->set("final_standby_wp1_max_speed", 0.4);
+    blackboard_->set("final_standby_wp1_pid_profile", 1);
+    blackboard_->set("final_standby_wp1_timeout_sec", 30.0);
+    blackboard_->set("final_standby_wp2_target_x", 8.60);
+    blackboard_->set("final_standby_wp2_target_y", side_sign * 1.00);
+    blackboard_->set("final_standby_wp2_target_yaw", standby_yaw);
+    blackboard_->set("final_standby_wp2_max_speed", 0.4);
+    blackboard_->set("final_standby_wp2_pid_profile", 1);
+    blackboard_->set("final_standby_wp2_timeout_sec", 30.0);
+    blackboard_->set("final_standby_wp3_target_x", standby_x);
+    blackboard_->set("final_standby_wp3_target_y", standby_y);
+    blackboard_->set("final_standby_wp3_target_yaw", standby_yaw);
+    blackboard_->set("final_standby_wp3_max_speed", standby_max_speed);
+    blackboard_->set("final_standby_wp3_pid_profile", standby_pid_profile);
+    blackboard_->set("final_standby_wp3_timeout_sec", standby_timeout_sec);
+
+    blackboard_->set("final_place_action_service_name",
+                     final_cfg.value("place_service_name", "/ares_tool_node/tool_action"));
+    blackboard_->set("final_place_mid_action",
+                     final_cfg.value("place_mid_action", "arm_place_mid"));
+    blackboard_->set("final_place_high_action",
+                     final_cfg.value("place_high_action", "arm_place_high"));
+    blackboard_->set("final_place_action_timeout_sec",
+                     final_cfg.value("place_action_timeout_sec", 30.0));
+    blackboard_->set("final_place_action_retry_attempts",
+                     final_cfg.value("place_action_retry_attempts", 3));
+    blackboard_->set("final_place_action_arg0", 0.0);
+    blackboard_->set("final_place_action_arg1", 0.0);
+    blackboard_->set("final_place_action_arg2", 0.0);
+    blackboard_->set("final_place_action_arg3", 0.0);
 
     const auto load_final_target =
         [this, &targets](const std::string& key) -> bool {

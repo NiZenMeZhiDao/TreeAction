@@ -1,20 +1,17 @@
-# Default debug config. Official match launches should pass param_blue.yaml
-# or param_red.yaml explicitly via param_config.
-
 match:
-  side: "blue"
+  side: "red"
 
 prepare_area:
   points:
     spear_pickup:
       x: 0.49
-      y: -0.73
-      yaw: 1.6493
+      y: 0.73
+      yaw: -1.6493
       frame_id: "map"
     dock_standby:
       x: 0.02
-      y: 0.76
-      yaw: -3.1172
+      y: -0.76
+      yaw: 3.1172
       frame_id: "map"
 
   motion:
@@ -59,15 +56,15 @@ final_area:
   post_place_wait_sec: 3.0
   standby:
     target_x: 9.20
-    target_y: -1.20
-    target_yaw: -1.5708
+    target_y: 1.20
+    target_yaw: 1.5708
     max_speed: 0.40
     pid_profile: 1
     timeout_sec: 60.0
   standby_waypoints:
-    - {target_x: 7.80, target_y: -0.60, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    - {target_x: 8.60, target_y: -1.00, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    - {target_x: 9.20, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 60.0}
+    - {target_x: 7.80, target_y: 0.60, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    - {target_x: 8.60, target_y: 1.00, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    - {target_x: 9.20, target_y: 1.20, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 60.0}
   place_action:
     service_name: "/ares_tool_node/tool_action"
     mid_action: "arm_place_mid"
@@ -76,9 +73,9 @@ final_area:
     retry_attempts: 3
     args: [0.0, 0.0, 0.0, 0.0]
   targets:
-    2_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    2_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    2_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    2_left: {target_x: 9.76, target_y: 1.20, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    2_mid: {target_x: 10.30, target_y: 1.20, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    2_right: {target_x: 10.84, target_y: 1.20, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    3_left: {target_x: 9.76, target_y: 1.20, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    3_mid: {target_x: 10.30, target_y: 1.20, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    3_right: {target_x: 10.84, target_y: 1.20, target_yaw: 1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}

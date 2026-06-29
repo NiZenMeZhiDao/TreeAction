@@ -81,13 +81,8 @@ class StepMotionActionServer(Node):
         super().__init__('step_motion_action_server')
 
         # 参数配置
-        self.DEFAULT_LIFT_LOW = 205.0
-        self.DEFAULT_LIFT_HIGH = 410.0
-        self.H_LIFT_LOW = self.DEFAULT_LIFT_LOW
-        self.H_LIFT_HIGH = self.DEFAULT_LIFT_HIGH
         self.H_INIT = 20.0
         self.HEIGHT_TOLERANCE = 20.0
-        self.down_high = 5
         # 状态变量
         self.current_state = State.IDLE
         self.target_height = 0.0
@@ -184,6 +179,9 @@ class StepMotionActionServer(Node):
             State.DOWN_4_REAR_HOVER_LAND: 'down_4_rear_hover_land',
             State.DOWN_5_RECOVERY: 'down_5_recovery',
         }
+
+        self._declare_stage_height_parameters()
+
         # 200mm 台阶速度参数。速度沿上下台阶方向，单位 m/s。
         # 上台阶: 四轮先抬到准备高度，通常原地等待悬挂到位。
         self.declare_parameter('step_motion.stage_speed.height_200.up_1_prepare', 1.0)
@@ -264,10 +262,58 @@ class StepMotionActionServer(Node):
         # 下台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
         self.declare_parameter('step_motion.stage_speed.height_400.down_5_recovery', 0.8)
 
+        # 仅前向上台阶使用: 根据前向 TOF 距离动态覆盖前轮搭上台阶前速度。
+        # 距离 >= max_distance_mm 时使用 max_speed，距离 <= min_distance_mm 时使用 min_speed。
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.enabled', True)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.min_distance_mm', 80.0)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.max_distance_mm', 200.0)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.min_speed', 0.3)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.max_speed', 1.0)
+
         self.step_relocation_topic = self.get_parameter(
             'step_motion.relocation_topic').value
         self.step_velocity_topic = self.get_parameter(
             'step_motion.velocity_topic').value
+
+    def _declare_stage_height_parameters(self):
+        # 高度单位: mm。front/rear 均为虚拟方向上的前/后轮组，all 表示四轮。
+        # 和 stage_speed 一样分 200/400 两套，方便实车调参时直接覆盖。
+        profile_defaults = {
+            '200': {
+                'up_1_prepare': {'all': 205.0},
+                'up_2_lift': {'all': 205.0},
+                'up_4_retract_front': {'front': 2.0},
+                'up_5_front_land': {'front': 2.0, 'rear': 207.0},
+                'up_6_side_dock_retract_rear': {'rear': -2.0},
+                'up_7_rear_land': {'rear': 10.0},
+                'up_8_recover': {'all': 20.0},
+                'down_1_prepare': {'all': 5.0},
+                'down_2_front_hover_land': {'front': 215.0},
+                'down_4_rear_hover_land': {'rear': 215.0},
+                'down_5_recovery': {'all': 20.0},
+            },
+            '400': {
+                'up_1_prepare': {'all': 410.0},
+                'up_2_lift': {'all': 410.0},
+                'up_4_retract_front': {'front': 2.0},
+                'up_5_front_land': {'front': 2.0, 'rear': 412.0},
+                'up_6_side_dock_retract_rear': {'rear': -2.0},
+                'up_7_rear_land': {'rear': 10.0},
+                'up_8_recover': {'all': 20.0},
+                'down_1_prepare': {'all': 5.0},
+                'down_2_front_hover_land': {'front': 420.0},
+                'down_4_rear_hover_land': {'rear': 420.0},
+                'down_5_recovery': {'all': 20.0},
+            },
+        }
+
+        for profile, stage_defaults in profile_defaults.items():
+            for suffix, group_defaults in stage_defaults.items():
+                for group, default in group_defaults.items():
+                    self.declare_parameter(
+                        f'step_motion.stage_height.height_{profile}.{suffix}.{group}',
+                        default,
+                    )
 
     def _start_control_loop(self):
         self.delay_timer.cancel()
@@ -354,21 +400,16 @@ class StepMotionActionServer(Node):
 
         direct_height_mode = mode == 3
         requested_step_height = abs(height)
-        self._stage_speed_level = '400' if requested_step_height > 300.0 else '200'
+        self._stage_speed_level = self._height_profile_for_step_height(
+            requested_step_height)
         self._known_step_height = (not direct_height_mode) and requested_step_height > 0.0
         if direct_height_mode:
             self._requested_height = 0.0
-            self.H_LIFT_LOW = self.DEFAULT_LIFT_LOW
-            self.H_LIFT_HIGH = self.DEFAULT_LIFT_HIGH
         elif self._known_step_height:
             self._requested_height = self._map_step_height_to_prepare_height(
                 requested_step_height)
-            self.H_LIFT_LOW = self._requested_height
-            self.H_LIFT_HIGH = self._requested_height
         else:
             self._requested_height = 0.0
-            self.H_LIFT_LOW = self.DEFAULT_LIFT_LOW
-            self.H_LIFT_HIGH = self.DEFAULT_LIFT_HIGH
 
         self.current_direction = Direction(direction)
         self.current_state = {
@@ -531,9 +572,24 @@ class StepMotionActionServer(Node):
 
     def _map_step_height_to_prepare_height(self, step_height):
         """Map a known stair height to the suspension preparation height."""
-        if step_height <= 300.0:
-            return 205.0
-        return 410.0
+        profile = self._height_profile_for_step_height(step_height)
+        return self._stage_height_for_profile(profile, State.UP_1_PREPARE, 'all')
+
+    def _height_profile_for_step_height(self, step_height):
+        return '400' if step_height > 300.0 else '200'
+
+    def _stage_height_for_profile(self, profile, state, group):
+        suffix = self._stage_speed_suffixes.get(state)
+        if not suffix:
+            return 0.0
+        param_name = (
+            f'step_motion.stage_height.height_{profile}.{suffix}.{group}'
+        )
+        return float(self.get_parameter(param_name).value)
+
+    def _stage_height(self, state, group):
+        return self._stage_height_for_profile(
+            self._stage_speed_level, state, group)
 
     def _format_distance(self, value):
         if math.isfinite(value):
@@ -564,6 +620,21 @@ class StepMotionActionServer(Node):
         return True
 
     def _reset_active_step_state(self):
+        down_states = {
+            State.DOWN_1_PREPARE,
+            State.DOWN_2_FRONT_HOVER_LAND,
+            State.DOWN_3_WAIT_REAR_HOVER_LAND,
+            State.DOWN_4_REAR_HOVER_LAND,
+            State.DOWN_5_RECOVERY,
+        }
+        recover_state = (
+            State.DOWN_5_RECOVERY
+            if self.current_state in down_states
+            else State.UP_8_RECOVER
+        )
+        recover_height = self._stage_height_for_profile(
+            self._stage_speed_level, recover_state, 'all')
+
         self._active_goal = False
         self._active_mode = 0
         self._requested_height = 0.0
@@ -572,7 +643,8 @@ class StepMotionActionServer(Node):
         self._step_motion_active = False
         self._step_target_pose = None
         self.current_state = State.IDLE
-        self.wheel_heights_target = [self.H_INIT] * 4
+        self.wheel_heights_target = [recover_height] * 4
+        self._stage_speed_level = '200'
         self._stable_counters.clear()
 
     def _set_v_wheel_height(self, v_indices, height):
@@ -611,7 +683,47 @@ class StepMotionActionServer(Node):
             return 0.0
         profile = f'height_{self._stage_speed_level}'
         param_name = f'step_motion.stage_speed.{profile}.{suffix}'
-        return float(self.get_parameter(param_name).value)
+        base_speed = float(self.get_parameter(param_name).value)
+        distance_speed = self._forward_up_distance_speed_override()
+        if distance_speed is not None:
+            return distance_speed
+        return base_speed
+
+    def _forward_up_distance_speed_override(self):
+        if self.current_direction != Direction.FORWARD:
+            return None
+        if self.current_state not in (
+            State.UP_3_FRONT_DOCK,
+            State.UP_4_RETRACT_FRONT,
+            State.UP_5_FRONT_LAND,
+        ):
+            return None
+        enabled = bool(self.get_parameter(
+            'step_motion.forward_up_speed_by_distance.enabled').value)
+        if not enabled:
+            return None
+
+        front_distance = self._get_v_distance(0)
+        if not math.isfinite(front_distance):
+            return None
+
+        min_distance = float(self.get_parameter(
+            'step_motion.forward_up_speed_by_distance.min_distance_mm').value)
+        max_distance = float(self.get_parameter(
+            'step_motion.forward_up_speed_by_distance.max_distance_mm').value)
+        min_speed = float(self.get_parameter(
+            'step_motion.forward_up_speed_by_distance.min_speed').value)
+        max_speed = float(self.get_parameter(
+            'step_motion.forward_up_speed_by_distance.max_speed').value)
+
+        if max_distance <= min_distance:
+            return clamp(max_speed, min(min_speed, max_speed),
+                         max(min_speed, max_speed))
+
+        ratio = (front_distance - min_distance) / (max_distance - min_distance)
+        ratio = clamp(ratio, 0.0, 1.0)
+        speed = min_speed + ratio * (max_speed - min_speed)
+        return clamp(speed, min(min_speed, max_speed), max(min_speed, max_speed))
 
     def _cross_track_error(
         self,
@@ -750,7 +862,7 @@ class StepMotionActionServer(Node):
 
         # ---- 上台阶 ----
         elif state == State.UP_1_PREPARE:
-            self.target_height = self.H_LIFT_LOW
+            self.target_height = self._stage_height(State.UP_1_PREPARE, 'all')
             self.wheel_heights_target = [self.target_height] * 4
             cond = self.check_height_reached([v_0, v_1, v_2, v_3], self.target_height)
             if self._is_stable(cond, 'up1_height', threshold=2):
@@ -763,12 +875,14 @@ class StepMotionActionServer(Node):
             v1_dist = self._get_v_distance_safe(1, default=999.0)
             cond_high = v1_dist < 200
             if self._is_stable(cond_high, 'up2_high_dist', threshold=18):
-                self.target_height = self.H_LIFT_HIGH
+                self._stage_speed_level = '400'
+                self.target_height = self._stage_height(State.UP_2_LIFT, 'all')
                 self.wheel_heights_target = [self.target_height] * 4
                 cond_h = self.check_height_reached([v_0, v_1, v_2, v_3], self.target_height)
                 if self._is_stable(cond_h, 'up2_height', threshold=2):
                     self.current_state = State.UP_3_FRONT_DOCK
             elif self._is_stable(not cond_high, 'up2_low_dist'):
+                self._stage_speed_level = '200'
                 self.current_state = State.UP_3_FRONT_DOCK
 
         elif state == State.UP_3_FRONT_DOCK:
@@ -778,17 +892,20 @@ class StepMotionActionServer(Node):
                 self.current_state = State.UP_4_RETRACT_FRONT
 
         elif state == State.UP_4_RETRACT_FRONT:
-            self._set_v_wheel_height([v_0, v_1], 2.0)
-            cond = self.check_height_reached([v_0, v_1], 2.0)
+            front_height = self._stage_height(State.UP_4_RETRACT_FRONT, 'front')
+            self._set_v_wheel_height([v_0, v_1], front_height)
+            cond = self.check_height_reached([v_0, v_1], front_height)
             if self._is_stable(cond, 'up4_height', threshold=2):
                 self.current_state = State.UP_5_FRONT_LAND
 
         elif state == State.UP_5_FRONT_LAND:
             cond = self._get_v_pe(v_0) == 1
             if self._is_stable(cond, 'up5_pe'):
-                self._set_v_wheel_height([v_0, v_1], 2.0)
-                self._set_v_wheel_height([v_2, v_3], self.target_height + 2.0)
-                cond_h = self.check_height_reached([v_2, v_3], self.target_height + 2.0)
+                front_height = self._stage_height(State.UP_5_FRONT_LAND, 'front')
+                rear_height = self._stage_height(State.UP_5_FRONT_LAND, 'rear')
+                self._set_v_wheel_height([v_0, v_1], front_height)
+                self._set_v_wheel_height([v_2, v_3], rear_height)
+                cond_h = self.check_height_reached([v_2, v_3], rear_height)
                 if self._is_stable(cond_h, 'up5_height', threshold=2):
                     self.current_state = State.UP_6_SIDE_DOCK_RETRACT_REAR
 
@@ -797,49 +914,59 @@ class StepMotionActionServer(Node):
             up6_pe_stable = self._is_stable(cond, 'up6_pe', threshold=2)
             cond_h = False
             if up6_pe_stable:
-                self._set_v_wheel_height([v_2, v_3], -2.0)
-                cond_h = self.check_height_reached([v_2, v_3], -2.0)
+                rear_height = self._stage_height(
+                    State.UP_6_SIDE_DOCK_RETRACT_REAR, 'rear')
+                self._set_v_wheel_height([v_2, v_3], rear_height)
+                cond_h = self.check_height_reached([v_2, v_3], rear_height)
                 if self._is_stable(cond_h, 'up6_height', threshold=2):
                     self.current_state = State.UP_7_REAR_LAND
 
         elif state == State.UP_7_REAR_LAND:
             cond = self._get_v_pe(v_3) == 1 
             if self._is_stable(cond, 'up7_pe'):
-                self._set_v_wheel_height([v_2, v_3], 10.0)
-                cond_h = self.check_height_reached([v_2, v_3], 10.0)
+                rear_height = self._stage_height(State.UP_7_REAR_LAND, 'rear')
+                self._set_v_wheel_height([v_2, v_3], rear_height)
+                cond_h = self.check_height_reached([v_2, v_3], rear_height)
                 if self._is_stable(cond_h, 'up7_height', threshold=2):
                     self.current_state = State.UP_8_RECOVER
 
         elif state == State.UP_8_RECOVER:
-            self.wheel_heights_target = [self.H_INIT] * 4
-            cond = self.check_height_reached([v_0, v_1, v_2, v_3], self.H_INIT)
+            recover_height = self._stage_height(State.UP_8_RECOVER, 'all')
+            self.wheel_heights_target = [recover_height] * 4
+            cond = self.check_height_reached([v_0, v_1, v_2, v_3], recover_height)
             if self._is_stable(cond, 'up8_height', threshold=2):
                 self.get_logger().info('上台阶序列完成。')
                 self.current_state = State.IDLE
 
         # ---- 下台阶 ----
         elif state == State.DOWN_1_PREPARE:
-            self.wheel_heights_target=[self.down_high] * 4 
+            prepare_height = self._stage_height(State.DOWN_1_PREPARE, 'all')
+            self.wheel_heights_target = [prepare_height] * 4
             cond_pe = self._get_v_pe(v_0) == 0
             if self._is_stable(cond_pe, 'down1_pe', threshold=2):
                 if not self._height_latched:
                     if self._requested_height > 0.0:
-                        self.target_height = self._requested_height
+                        self.target_height = self._stage_height(
+                            State.DOWN_2_FRONT_HOVER_LAND, 'front')
                     else:
                         dist = self._get_v_distance_safe(0, default=0.0)
                         if dist > 380:
-                            self.target_height = self.H_LIFT_HIGH
+                            self._stage_speed_level = '400'
                         elif dist > 180:
-                            self.target_height = self.H_LIFT_LOW
+                            self._stage_speed_level = '200'
                         else:
-                            self.target_height = self.H_LIFT_LOW
+                            self._stage_speed_level = '200'
+                        self.target_height = self._stage_height(
+                            State.DOWN_2_FRONT_HOVER_LAND, 'front')
                     self._height_latched = True
 
                 self.current_state = State.DOWN_2_FRONT_HOVER_LAND
 
         elif state == State.DOWN_2_FRONT_HOVER_LAND:
-            self._set_v_wheel_height([v_0, v_1], self.target_height + 10.0)
-            cond_h = self.check_height_reached([v_0, v_1], self.target_height + 10.0)
+            front_height = self._stage_height(
+                State.DOWN_2_FRONT_HOVER_LAND, 'front')
+            self._set_v_wheel_height([v_0, v_1], front_height)
+            cond_h = self.check_height_reached([v_0, v_1], front_height)
             if self._is_stable(cond_h, 'down2_height', threshold=2):
                 self._height_latched = False
                 self.current_state = State.DOWN_3_WAIT_REAR_HOVER_LAND
@@ -850,19 +977,23 @@ class StepMotionActionServer(Node):
                 self.current_state = State.DOWN_4_REAR_HOVER_LAND
 
         elif state == State.DOWN_4_REAR_HOVER_LAND:
-            self._set_v_wheel_height([v_2, v_3], self.target_height + 10.0)
-            cond_h = self.check_height_reached([v_2, v_3], self.target_height)
+            rear_height = self._stage_height(
+                State.DOWN_4_REAR_HOVER_LAND, 'rear')
+            self._set_v_wheel_height([v_2, v_3], rear_height)
+            cond_h = self.check_height_reached([v_2, v_3], rear_height)
             v3_dist = self._get_v_distance_safe(3, default=0.0)
             cond = v3_dist > 200.0
             if (
                 self._is_stable(cond_h, 'down4_height', threshold=2)
                 and self._is_stable(cond, 'down4_dist')
             ):
-                self.wheel_heights_target = [self.H_INIT] * 4
+                recover_height = self._stage_height(State.DOWN_5_RECOVERY, 'all')
+                self.wheel_heights_target = [recover_height] * 4
                 self.current_state = State.DOWN_5_RECOVERY
 
         elif state == State.DOWN_5_RECOVERY:
-            cond = self.check_height_reached([v_0, v_1, v_2, v_3], self.H_INIT)
+            recover_height = self._stage_height(State.DOWN_5_RECOVERY, 'all')
+            cond = self.check_height_reached([v_0, v_1, v_2, v_3], recover_height)
             if self._is_stable(cond, 'down5_height', threshold=2):
                 self.get_logger().info('下台阶序列完成。')
                 self.current_state = State.IDLE

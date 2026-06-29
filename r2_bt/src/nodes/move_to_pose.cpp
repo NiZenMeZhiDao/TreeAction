@@ -21,7 +21,6 @@ BT::PortsList MoveToPose::providedPorts()
     BT::InputPort<double>("target_x", "Target X in map frame (m)"),
     BT::InputPort<double>("target_y", "Target Y in map frame (m)"),
     BT::InputPort<double>("target_yaw", "Target yaw angle in map frame (rad)"),
-    BT::InputPort<double>("max_speed", "Max chassis speed (m/s), default 0.5"),
     BT::InputPort<int>("pid_profile", MoveToPoseAction::Goal::PID_PROFILE_FAST,
                        "PID profile: 0=slow, 1=fast"),
     BT::InputPort<double>("timeout_sec", 30.0, "Abort action after this many seconds"),
@@ -51,7 +50,6 @@ BT::NodeStatus MoveToPose::onStart()
   auto res_x = getInput<double>("target_x");
   auto res_y = getInput<double>("target_y");
   auto res_yaw = getInput<double>("target_yaw");
-  auto res_speed = getInput<double>("max_speed");
   const int pid_profile =
       getInput<int>("pid_profile").value_or(MoveToPoseAction::Goal::PID_PROFILE_FAST);
   timeout_sec_ = getInput<double>("timeout_sec").value_or(30.0);
@@ -66,7 +64,6 @@ BT::NodeStatus MoveToPose::onStart()
   double target_x = res_x.value();
   double target_y = res_y.value();
   double target_yaw = res_yaw.value();
-  double max_speed = res_speed.has_value() ? res_speed.value() : 0.5;
   std::string frame_id = getInput<std::string>("frame_id").value_or("map");
 
   if (pid_profile != MoveToPoseAction::Goal::PID_PROFILE_SLOW &&
@@ -144,10 +141,10 @@ BT::NodeStatus MoveToPose::onStart()
   action_client_->async_send_goal(goal, send_goal_options);
 
   RCLCPP_INFO(node_->get_logger(),
-              "[MoveToPose] goal sent: x=%.3f y=%.3f yaw_deg=%.1f "
-              "pid_profile=%u frame=%s speed_port=%.2f",
-              target_x, target_y, goal.yaw_deg, goal.pid_profile,
-              frame_id.c_str(), max_speed);
+	              "[MoveToPose] goal sent: x=%.3f y=%.3f yaw_deg=%.1f "
+	              "pid_profile=%u frame=%s",
+	              target_x, target_y, goal.yaw_deg, goal.pid_profile,
+	              frame_id.c_str());
 
   return BT::NodeStatus::RUNNING;
 }

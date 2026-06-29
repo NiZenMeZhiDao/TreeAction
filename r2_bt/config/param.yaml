@@ -57,17 +57,22 @@ final_area:
   command_timeout_sec: 0.0
   place_signal_timeout_sec: 0.0
   post_place_wait_sec: 3.0
+  chassis_height:
+    topic: "t0x0112_final"
+    waypoint1_height: 60.0
+    waypoint3_height: 20.0
+    settle_sec: 0.2
   standby:
     target_x: 9.20
     target_y: -1.20
     target_yaw: -1.5708
-    max_speed: 0.40
     pid_profile: 1
     timeout_sec: 60.0
+  standby_waypoint_count: 3
   standby_waypoints:
-    - {target_x: 7.80, target_y: -0.60, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    - {target_x: 8.60, target_y: -1.00, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    - {target_x: 9.20, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 60.0}
+    - {target_x: 7.80, target_y: -0.60, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}
+    - {target_x: 8.60, target_y: -1.00, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}
+    - {target_x: 9.20, target_y: -1.20, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 60.0}
   place_action:
     service_name: "/ares_tool_node/tool_action"
     mid_action: "arm_place_mid"
@@ -76,9 +81,9 @@ final_area:
     retry_attempts: 3
     args: [0.0, 0.0, 0.0, 0.0]
   targets:
-    2_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    2_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    2_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    2_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}
+    2_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}
+    2_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}
+    3_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}
+    3_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}
+    3_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, pid_profile: 1, timeout_sec: 30.0}

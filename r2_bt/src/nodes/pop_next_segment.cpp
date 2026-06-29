@@ -21,7 +21,6 @@ BT::PortsList PopNextSegment::providedPorts()
     BT::OutputPort<double>("target_x", "Move target X in map frame (m)"),
     BT::OutputPort<double>("target_y", "Move target Y in map frame (m)"),
     BT::OutputPort<double>("target_yaw", "Move target yaw in map frame (rad)"),
-    BT::OutputPort<double>("max_speed", "Max chassis speed for this segment (m/s)"),
     BT::OutputPort<double>("timeout_sec", "Time limit for this segment (s)"),
     BT::OutputPort<int>("climb_mode", "Climb mode: 0=AUTO, 1=UP, 2=DOWN, 3=RECOVER"),
     BT::OutputPort<int>("climb_direction", "Climb direction: 0=FORWARD, 1=LEFT, 2=RIGHT, 3=BACKWARD"),
@@ -80,7 +79,6 @@ BT::NodeStatus PopNextSegment::tryPop()
   setOutput("target_x", segment.target_x);
   setOutput("target_y", segment.target_y);
   setOutput("target_yaw", segment.target_yaw);
-  setOutput("max_speed", segment.max_speed);
   setOutput("timeout_sec", segment.timeout_sec);
   setOutput("climb_mode", segment.climb_mode);
   setOutput("climb_direction", segment.climb_direction);

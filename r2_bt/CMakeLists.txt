@@ -30,9 +30,11 @@ add_library(r2_bt_nodes SHARED
   src/nodes/is_string_non_empty.cpp
   src/nodes/meilin_fetch.cpp
   src/nodes/meilin_move.cpp
+  src/nodes/move_through_final_waypoints.cpp
   src/nodes/move_to_pose.cpp
   src/nodes/pop_next_meilin_segment.cpp
   src/nodes/pop_next_segment.cpp
+  src/nodes/publish_chassis_height.cpp
   src/nodes/retry_segment.cpp
   src/nodes/set_debug_status.cpp
   src/nodes/switch_segment_type.cpp

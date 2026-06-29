@@ -117,6 +117,10 @@ def generate_launch_description():
         "'", LaunchConfiguration('startup_profile'),
         "' in ['prepare', 'minimal_meilin', 'full']"
     ])
+    localization_profile = PythonExpression([
+        "'", LaunchConfiguration('startup_profile'),
+        "' in ['prepare', 'minimal_meilin', 'full']"
+    ])
     tree_file = PythonExpression([
         "'prepare_area.xml' if '", LaunchConfiguration('startup_profile'),
         "' == 'prepare' else ('meilin_stage.xml' if '",
@@ -133,7 +137,7 @@ def generate_launch_description():
         LaunchConfiguration('startup_profile'),
         "' == 'minimal_meilin' else ('final' if '",
         LaunchConfiguration('startup_profile'),
-        "' == 'final' else 'full'))"
+        "' == 'final' else 'full')))"
     ])
 
     odin_launch = IncludeLaunchDescription(
@@ -145,6 +149,7 @@ def generate_launch_description():
         launch_arguments={
             'launch_rviz': LaunchConfiguration('launch_rviz'),
         }.items(),
+        condition=IfCondition(localization_profile),
     )
 
     usb_bridge_node = Node(
@@ -267,7 +272,8 @@ def generate_launch_description():
         pick_lidar_port_arg,
         pick_expected_count_arg,
 
-        LogInfo(msg='=== R2 autonomy bringup: localization ==='),
+        LogInfo(msg='=== R2 autonomy bringup: localization ===',
+                condition=IfCondition(localization_profile)),
         odin_launch,
         LogInfo(msg='=== R2 autonomy bringup: hardware IO ==='),
         usb_bridge_node,

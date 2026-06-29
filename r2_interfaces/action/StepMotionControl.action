@@ -34,3 +34,5 @@ float64 current_y
 float64 current_yaw_deg
 float32[] wheel_heights_current
 float32[] wheel_heights_target
+float32[] distance_data
+float32[] photoelectric_data

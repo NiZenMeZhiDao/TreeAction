@@ -17,6 +17,7 @@ from std_msgs.msg import Float32MultiArray, Int32
 from enum import Enum
 import collections
 import math
+import os
 import time
 from rclpy.executors import MultiThreadedExecutor
 
@@ -34,8 +35,9 @@ class State(Enum):
 
     DOWN_1_PREPARE = 20
     DOWN_2_FRONT_HOVER_LAND = 21
-    DOWN_3_REAR_HOVER_LAND = 22
-    DOWN_4_RECOVERY = 23
+    DOWN_3_WAIT_REAR_HOVER_LAND = 22
+    DOWN_4_REAR_HOVER_LAND = 23
+    DOWN_5_RECOVERY = 24
 
 
 class Direction(Enum):
@@ -50,6 +52,14 @@ def clamp(value, minimum, maximum):
 
 def normalize_angle(angle_rad):
     return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
+
+
+def ensure_ros_log_dir():
+    if os.environ.get('ROS_LOG_DIR'):
+        return
+    log_dir = '/tmp/ros_logs'
+    os.makedirs(log_dir, exist_ok=True)
+    os.environ['ROS_LOG_DIR'] = log_dir
 
 
 def yaw_from_quaternion(q):
@@ -169,43 +179,50 @@ class StepMotionActionServer(Node):
             State.UP_8_RECOVER: 'up_8_recover',
             State.DOWN_1_PREPARE: 'down_1_prepare',
             State.DOWN_2_FRONT_HOVER_LAND: 'down_2_front_hover_land',
-            State.DOWN_3_REAR_HOVER_LAND: 'down_3_rear_hover_land',
-            State.DOWN_4_RECOVERY: 'down_4_recovery',
+            State.DOWN_3_WAIT_REAR_HOVER_LAND:
+                'down_3_wait_rear_hover_land',
+            State.DOWN_4_REAR_HOVER_LAND: 'down_4_rear_hover_land',
+            State.DOWN_5_RECOVERY: 'down_5_recovery',
         }
         # 200mm 台阶速度参数。速度沿上下台阶方向，单位 m/s。
         # 上台阶: 四轮先抬到准备高度，通常原地等待悬挂到位。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_1_prepare', 0.8)
+        self.declare_parameter('step_motion.stage_speed.height_200.up_1_prepare', 1.0)
         # 上台阶: 未知台阶高度时继续判断高/低台阶，通常原地等待。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_2_lift', 0.8)
+        self.declare_parameter('step_motion.stage_speed.height_200.up_2_lift', 1.0)
         # 上台阶: 前轮对接台阶边缘，需要沿台阶方向向前贴近。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_3_front_dock', 0.20)
+        self.declare_parameter('step_motion.stage_speed.height_200.up_3_front_dock', 0.40)
         # 上台阶: 收前轮悬挂，避免边走边收导致前轮落点不稳。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_4_retract_front', 0.2)
+        self.declare_parameter('step_motion.stage_speed.height_200.up_4_retract_front', 0.5)
         # 上台阶: 前轮落地后轻推，让车身稳定进入台阶面。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_5_front_land', 0.8)
+        self.declare_parameter('step_motion.stage_speed.height_200.up_5_front_land', 1.0)
         # 上台阶: 后轮靠近台阶并收后轮，是主要向前推进阶段。
         self.declare_parameter(
             'step_motion.stage_speed.height_200.up_6_side_dock_retract_rear',
-            0.3,
+            0.5,
         )
         # 上台阶: 后轮落地阶段，低速保持前进避免冲过头。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_7_rear_land', 0.8)
+        self.declare_parameter('step_motion.stage_speed.height_200.up_7_rear_land', 1.0)
         # 上台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_8_recover', 0.8)
+        self.declare_parameter('step_motion.stage_speed.height_200.up_8_recover', 1.0)
         # 下台阶: 降到下台阶准备高度，通常原地等待检测边缘。
         self.declare_parameter('step_motion.stage_speed.height_200.down_1_prepare', 0.8)
         # 下台阶: 前轮悬空/落地阶段，低速向前送前轮。
         self.declare_parameter(
             'step_motion.stage_speed.height_200.down_2_front_hover_land',
-            0.10,
+            0.80,
         )
-        # 下台阶: 后轮离开台阶边缘，继续沿台阶方向向前。
+        # 下台阶: 等待后轮到达台阶边缘，继续沿台阶方向向前。
         self.declare_parameter(
-            'step_motion.stage_speed.height_200.down_3_rear_hover_land',
-            0.3,
+            'step_motion.stage_speed.height_200.down_3_wait_rear_hover_land',
+            0.8,
+        )
+        # 下台阶: 后轮悬空/落地阶段，继续沿台阶方向向前。
+        self.declare_parameter(
+            'step_motion.stage_speed.height_200.down_4_rear_hover_land',
+            0.8,
         )
         # 下台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
-        self.declare_parameter('step_motion.stage_speed.height_200.down_4_recovery', 0.0)
+        self.declare_parameter('step_motion.stage_speed.height_200.down_5_recovery', 0.8)
 
         # 400mm 台阶速度参数。和 200mm 分开显式声明，方便单独调参。
         # 上台阶: 四轮先抬到准备高度，通常原地等待悬挂到位。
@@ -213,7 +230,7 @@ class StepMotionActionServer(Node):
         # 上台阶: 未知台阶高度时继续判断高/低台阶，通常原地等待。
         self.declare_parameter('step_motion.stage_speed.height_400.up_2_lift', 0.8)
         # 上台阶: 前轮对接台阶边缘，需要沿台阶方向向前贴近。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_3_front_dock', 0.20)
+        self.declare_parameter('step_motion.stage_speed.height_400.up_3_front_dock', 0.50)
         # 上台阶: 收前轮悬挂，避免边走边收导致前轮落点不稳。
         self.declare_parameter('step_motion.stage_speed.height_400.up_4_retract_front', 0.2)
         # 上台阶: 前轮落地后轻推，让车身稳定进入台阶面。
@@ -221,7 +238,7 @@ class StepMotionActionServer(Node):
         # 上台阶: 后轮靠近台阶并收后轮，是主要向前推进阶段。
         self.declare_parameter(
             'step_motion.stage_speed.height_400.up_6_side_dock_retract_rear',
-            0.3,
+            0.2,
         )
         # 上台阶: 后轮落地阶段，低速保持前进避免冲过头。
         self.declare_parameter('step_motion.stage_speed.height_400.up_7_rear_land', 0.8)
@@ -232,15 +249,20 @@ class StepMotionActionServer(Node):
         # 下台阶: 前轮悬空/落地阶段，低速向前送前轮。
         self.declare_parameter(
             'step_motion.stage_speed.height_400.down_2_front_hover_land',
-            0.10,
+            0.20,
         )
-        # 下台阶: 后轮离开台阶边缘，继续沿台阶方向向前。
+        # 下台阶: 等待后轮到达台阶边缘，继续沿台阶方向向前。
         self.declare_parameter(
-            'step_motion.stage_speed.height_400.down_3_rear_hover_land',
+            'step_motion.stage_speed.height_400.down_3_wait_rear_hover_land',
+            0.3,
+        )
+        # 下台阶: 后轮悬空/落地阶段，继续沿台阶方向向前。
+        self.declare_parameter(
+            'step_motion.stage_speed.height_400.down_4_rear_hover_land',
             0.3,
         )
         # 下台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
-        self.declare_parameter('step_motion.stage_speed.height_400.down_4_recovery', 0.0)
+        self.declare_parameter('step_motion.stage_speed.height_400.down_5_recovery', 0.8)
 
         self.step_relocation_topic = self.get_parameter(
             'step_motion.relocation_topic').value
@@ -280,19 +302,25 @@ class StepMotionActionServer(Node):
                 return GoalResponse.REJECT
             pose_x, pose_y, pose_yaw = self._latest_pose
             target_yaw = math.radians(float(goal_request.correction_yaw_deg))
-            position_error = math.hypot(
-                pose_x - float(goal_request.correction_x),
-                pose_y - float(goal_request.correction_y),
+            cross_error = abs(
+                self._cross_track_error(
+                    int(direction),
+                    pose_x,
+                    pose_y,
+                    float(goal_request.correction_x),
+                    float(goal_request.correction_y),
+                    target_yaw,
+                )
             )
             yaw_error = abs(normalize_angle(target_yaw - pose_yaw))
             max_position_error = float(self.get_parameter(
                 'step_motion.max_start_position_error').value)
             max_yaw_error = math.radians(float(self.get_parameter(
                 'step_motion.max_start_yaw_error_deg').value))
-            if position_error > max_position_error or yaw_error > max_yaw_error:
+            if cross_error > max_position_error or yaw_error > max_yaw_error:
                 self.get_logger().warning(
                     f'Rejecting step motion goal: correction target too far, '
-                    f'position_error={position_error:.3f}m, '
+                    f'cross_error={cross_error:.3f}m, '
                     f'yaw_error={math.degrees(yaw_error):.1f}deg'
                 )
                 return GoalResponse.REJECT
@@ -393,6 +421,12 @@ class StepMotionActionServer(Node):
             ]
             feedback_msg.wheel_heights_target = [
                 float(h) for h in self.wheel_heights_target
+            ]
+            feedback_msg.distance_data = [
+                float(d) for d in self.distance_filtered
+            ]
+            feedback_msg.photoelectric_data = [
+                float(pe) for pe in self.pe_switches_filtered
             ]
             goal_handle.publish_feedback(feedback_msg)
 
@@ -579,6 +613,26 @@ class StepMotionActionServer(Node):
         param_name = f'step_motion.stage_speed.{profile}.{suffix}'
         return float(self.get_parameter(param_name).value)
 
+    def _cross_track_error(
+        self,
+        direction,
+        current_x,
+        current_y,
+        target_x,
+        target_y,
+        target_yaw,
+    ):
+        dx = current_x - target_x
+        dy = current_y - target_y
+        cos_yaw = math.cos(target_yaw)
+        sin_yaw = math.sin(target_yaw)
+        target_body_x = cos_yaw * dx + sin_yaw * dy
+        target_body_y = -sin_yaw * dx + cos_yaw * dy
+
+        if direction == Direction.FORWARD.value:
+            return target_body_y
+        return target_body_x
+
     def _publish_step_velocity(self):
         if self.current_state == State.IDLE:
             return
@@ -724,17 +778,17 @@ class StepMotionActionServer(Node):
                 self.current_state = State.UP_4_RETRACT_FRONT
 
         elif state == State.UP_4_RETRACT_FRONT:
-            self._set_v_wheel_height([v_0, v_1], 5.0)
-            cond = self.check_height_reached([v_0, v_1], 5.0)
+            self._set_v_wheel_height([v_0, v_1], 2.0)
+            cond = self.check_height_reached([v_0, v_1], 2.0)
             if self._is_stable(cond, 'up4_height', threshold=2):
                 self.current_state = State.UP_5_FRONT_LAND
 
         elif state == State.UP_5_FRONT_LAND:
             cond = self._get_v_pe(v_0) == 1
             if self._is_stable(cond, 'up5_pe'):
-                self._set_v_wheel_height([v_0, v_1], 10.0)
-                self._set_v_wheel_height([v_2, v_3], self.target_height + 5.0)
-                cond_h = self.check_height_reached([v_2, v_3], self.target_height + 5.0)
+                self._set_v_wheel_height([v_0, v_1], 2.0)
+                self._set_v_wheel_height([v_2, v_3], self.target_height + 2.0)
+                cond_h = self.check_height_reached([v_2, v_3], self.target_height + 2.0)
                 if self._is_stable(cond_h, 'up5_height', threshold=2):
                     self.current_state = State.UP_6_SIDE_DOCK_RETRACT_REAR
 
@@ -743,8 +797,8 @@ class StepMotionActionServer(Node):
             up6_pe_stable = self._is_stable(cond, 'up6_pe', threshold=2)
             cond_h = False
             if up6_pe_stable:
-                self._set_v_wheel_height([v_2, v_3], -10.0)
-                cond_h = self.check_height_reached([v_2, v_3], -10.0)
+                self._set_v_wheel_height([v_2, v_3], -2.0)
+                cond_h = self.check_height_reached([v_2, v_3], -2.0)
                 if self._is_stable(cond_h, 'up6_height', threshold=2):
                     self.current_state = State.UP_7_REAR_LAND
 
@@ -781,30 +835,35 @@ class StepMotionActionServer(Node):
                             self.target_height = self.H_LIFT_LOW
                     self._height_latched = True
 
-                self._set_v_wheel_height([v_0, v_1], self.target_height + 30.0)
-                cond_h = self.check_height_reached([v_0, v_1], self.target_height + 10.0)
-                if self._is_stable(cond_h, 'down1_height', threshold=2):
-                    self._height_latched = False
-                    self.current_state = State.DOWN_2_FRONT_HOVER_LAND
+                self.current_state = State.DOWN_2_FRONT_HOVER_LAND
 
         elif state == State.DOWN_2_FRONT_HOVER_LAND:
-            cond_pe = self._get_v_pe(v_3) == 0
-            if self._is_stable(cond_pe, 'down2_pe', threshold=2):
-                self._set_v_wheel_height([v_2, v_3], self.target_height + 10.0)
-                cond_h = self.check_height_reached([v_2, v_3], self.target_height)
-                if self._is_stable(cond_h, 'down2_height', threshold=2):
-                    self.current_state = State.DOWN_3_REAR_HOVER_LAND
+            self._set_v_wheel_height([v_0, v_1], self.target_height + 10.0)
+            cond_h = self.check_height_reached([v_0, v_1], self.target_height + 10.0)
+            if self._is_stable(cond_h, 'down2_height', threshold=2):
+                self._height_latched = False
+                self.current_state = State.DOWN_3_WAIT_REAR_HOVER_LAND
 
-        elif state == State.DOWN_3_REAR_HOVER_LAND:
+        elif state == State.DOWN_3_WAIT_REAR_HOVER_LAND:
+            cond_pe = self._get_v_pe(v_3) == 0
+            if self._is_stable(cond_pe, 'down3_pe', threshold=2):
+                self.current_state = State.DOWN_4_REAR_HOVER_LAND
+
+        elif state == State.DOWN_4_REAR_HOVER_LAND:
+            self._set_v_wheel_height([v_2, v_3], self.target_height + 10.0)
+            cond_h = self.check_height_reached([v_2, v_3], self.target_height)
             v3_dist = self._get_v_distance_safe(3, default=0.0)
             cond = v3_dist > 200.0
-            if self._is_stable(cond, 'down3_dist'):
+            if (
+                self._is_stable(cond_h, 'down4_height', threshold=2)
+                and self._is_stable(cond, 'down4_dist')
+            ):
                 self.wheel_heights_target = [self.H_INIT] * 4
-                self.current_state = State.DOWN_4_RECOVERY
+                self.current_state = State.DOWN_5_RECOVERY
 
-        elif state == State.DOWN_4_RECOVERY:
+        elif state == State.DOWN_5_RECOVERY:
             cond = self.check_height_reached([v_0, v_1, v_2, v_3], self.H_INIT)
-            if self._is_stable(cond, 'down4_height', threshold=2):
+            if self._is_stable(cond, 'down5_height', threshold=2):
                 self.get_logger().info('下台阶序列完成。')
                 self.current_state = State.IDLE
 
@@ -815,6 +874,7 @@ class StepMotionActionServer(Node):
 
 
 def main(args=None):
+    ensure_ros_log_dir()
     rclpy.init(args=args)
     node = StepMotionActionServer()
     executor = MultiThreadedExecutor(num_threads=4)

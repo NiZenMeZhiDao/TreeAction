@@ -20,7 +20,6 @@ BT::PortsList SelectFinalTarget::providedPorts()
     BT::OutputPort<double>("target_x", "MoveToPose target x"),
     BT::OutputPort<double>("target_y", "MoveToPose target y"),
     BT::OutputPort<double>("target_yaw", "MoveToPose target yaw"),
-    BT::OutputPort<double>("max_speed", "MoveToPose max speed"),
     BT::OutputPort<int>("pid_profile", "MoveToPose PID profile"),
     BT::OutputPort<double>("timeout_sec", "MoveToPose timeout"),
     BT::OutputPort<std::string>("message", "Status or error message"),
@@ -56,7 +55,6 @@ BT::NodeStatus SelectFinalTarget::tick()
   double target_x = 0.0;
   double target_y = 0.0;
   double target_yaw = 0.0;
-  double max_speed = 0.0;
   double timeout_sec = 0.0;
   int pid_profile = 0;
   std::string error;
@@ -64,7 +62,6 @@ BT::NodeStatus SelectFinalTarget::tick()
   if (!read_target_value(prefix + "target_x", target_x, error) ||
       !read_target_value(prefix + "target_y", target_y, error) ||
       !read_target_value(prefix + "target_yaw", target_yaw, error) ||
-      !read_target_value(prefix + "max_speed", max_speed, error) ||
       !read_target_value(prefix + "pid_profile", pid_profile, error) ||
       !read_target_value(prefix + "timeout_sec", timeout_sec, error))
   {
@@ -79,7 +76,6 @@ BT::NodeStatus SelectFinalTarget::tick()
   setOutput("target_x", target_x);
   setOutput("target_y", target_y);
   setOutput("target_yaw", target_yaw);
-  setOutput("max_speed", max_speed);
   setOutput("pid_profile", pid_profile);
   setOutput("timeout_sec", timeout_sec);
 

@@ -125,40 +125,17 @@
     </ForEachSegment>
   </BehaviorTree>
 
-  <!-- ====== 竞技区：三关键点到待命位后循环等待 deck 指令 ====== -->
+  <!-- ====== 竞技区：按参数 waypoint 列表到待命位后循环等待 deck 指令 ====== -->
   <BehaviorTree ID="FinalArea">
     <Sequence>
 
       <Sequence name="FINAL_00_MOVE_TO_STANDBY_WAYPOINTS">
-        <RetrySegment num_attempts="3">
-          <MoveToPose target_x="{final_standby_wp1_target_x}"
-                      target_y="{final_standby_wp1_target_y}"
-                      target_yaw="{final_standby_wp1_target_yaw}"
-                      max_speed="{final_standby_wp1_max_speed}"
-                      pid_profile="{final_standby_wp1_pid_profile}"
-                      timeout_sec="{final_standby_wp1_timeout_sec}"
-                      error_msg="{last_error}"/>
-        </RetrySegment>
-
-        <RetrySegment num_attempts="3">
-          <MoveToPose target_x="{final_standby_wp2_target_x}"
-                      target_y="{final_standby_wp2_target_y}"
-                      target_yaw="{final_standby_wp2_target_yaw}"
-                      max_speed="{final_standby_wp2_max_speed}"
-                      pid_profile="{final_standby_wp2_pid_profile}"
-                      timeout_sec="{final_standby_wp2_timeout_sec}"
-                      error_msg="{last_error}"/>
-        </RetrySegment>
-
-        <RetrySegment num_attempts="3">
-          <MoveToPose target_x="{final_standby_wp3_target_x}"
-                      target_y="{final_standby_wp3_target_y}"
-                      target_yaw="{final_standby_wp3_target_yaw}"
-                      max_speed="{final_standby_wp3_max_speed}"
-                      pid_profile="{final_standby_wp3_pid_profile}"
-                      timeout_sec="{final_standby_wp3_timeout_sec}"
-                      error_msg="{last_error}"/>
-        </RetrySegment>
+        <MoveThroughFinalWaypoints height_topic="{final_chassis_height_topic}"
+                                   height_wp1="{final_chassis_height_wp1}"
+                                   height_wp3="{final_chassis_height_wp3}"
+                                   settle_sec="{final_chassis_height_settle_sec}"
+                                   retry_attempts="3"
+                                   message="{last_error}"/>
       </Sequence>
 
       <Repeat num_cycles="-1">
@@ -177,7 +154,6 @@
                              target_x="{final_target_x}"
                              target_y="{final_target_y}"
                              target_yaw="{final_target_yaw}"
-                             max_speed="{final_target_max_speed}"
                              pid_profile="{final_target_pid_profile}"
                              timeout_sec="{final_target_timeout_sec}"
                              message="{last_error}"/>
@@ -186,7 +162,6 @@
             <MoveToPose target_x="{final_target_x}"
                         target_y="{final_target_y}"
                         target_yaw="{final_target_yaw}"
-                        max_speed="{final_target_max_speed}"
                         pid_profile="{final_target_pid_profile}"
                         timeout_sec="{final_target_timeout_sec}"
                         error_msg="{last_error}"/>
@@ -253,7 +228,6 @@
             <MoveToPose target_x="{final_standby_target_x}"
                         target_y="{final_standby_target_y}"
                         target_yaw="{final_standby_target_yaw}"
-                        max_speed="{final_standby_max_speed}"
                         pid_profile="{final_standby_pid_profile}"
                         timeout_sec="{final_standby_timeout_sec}"
                         error_msg="{last_error}"/>

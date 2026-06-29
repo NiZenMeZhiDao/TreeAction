@@ -216,7 +216,6 @@ struct Segment
   // === 以下字段仅用于旧 JSON segment 路径（准备区/竞技区）===
   double target_x = 0.0;
   double target_y = 0.0;
-  double max_speed = 0.5;
   double timeout_sec = 30.0;
   double suspension_timeout_sec = 10.0;
   int climb_mode = 0;

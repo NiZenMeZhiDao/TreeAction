@@ -129,10 +129,11 @@
 `16` | `UP_7_REAR_LAND` | 等待后轮光电触发 → 后轮着台阶
 `17` | `UP_8_RECOVER` | 四轮恢复到 20mm → IDLE
 **下台阶** | |
-`20` | `DOWN_1_PREPARE` | 前两轮抬升至目标高度
-`21` | `DOWN_2_FRONT_HOVER_LAND` | 中轮抬升 → 前轮悬空着陆
-`22` | `DOWN_3_REAR_HOVER_LAND` | 后轮距离 > 200mm 判断已下台阶
-`23` | `DOWN_4_RECOVERY` | 四轮恢复到 20mm → IDLE
+`20` | `DOWN_1_PREPARE` | 四轮降到下台阶准备高度，等待前轮离开台阶边缘
+`21` | `DOWN_2_FRONT_HOVER_LAND` | 前两轮抬升至目标高度，前轮悬空着陆
+`22` | `DOWN_3_WAIT_REAR_HOVER_LAND` | 等待后轮到达台阶边缘
+`23` | `DOWN_4_REAR_HOVER_LAND` | 后两轮抬升至目标高度，等待后轮距离 > 200mm 判断已下台阶
+`24` | `DOWN_5_RECOVERY` | 四轮恢复到 20mm → IDLE
 
 ### 2.6 BT 节点端口
 

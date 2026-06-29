@@ -35,11 +35,13 @@
 #include "r2_bt/nodes/actions/go_to_pose.hpp"
 #include "r2_bt/nodes/actions/meilin_fetch.hpp"
 #include "r2_bt/nodes/actions/meilin_move.hpp"
+#include "r2_bt/nodes/actions/move_through_final_waypoints.hpp"
 #include "r2_bt/nodes/actions/move_to_pose.hpp"
 #include "r2_bt/nodes/actions/place_object_placeholder.hpp"
 #include "r2_bt/nodes/actions/pick_action.hpp"
 #include "r2_bt/nodes/actions/pop_next_meilin_segment.hpp"
 #include "r2_bt/nodes/actions/pop_next_segment.hpp"
+#include "r2_bt/nodes/actions/publish_chassis_height.hpp"
 #include "r2_bt/nodes/actions/select_final_target.hpp"
 #include "r2_bt/nodes/actions/suspension_control.hpp"
 #include "r2_bt/nodes/actions/wait_arm_idle.hpp"
@@ -115,12 +117,14 @@ public:
     factory_.registerNodeType<r2_bt::GoToPose>("GoToPose");
     factory_.registerNodeType<r2_bt::MeilinMove>("Move");
     factory_.registerNodeType<r2_bt::MeilinFetch>("Fetch");
+    factory_.registerNodeType<r2_bt::MoveThroughFinalWaypoints>("MoveThroughFinalWaypoints");
     factory_.registerNodeType<r2_bt::PopNextSegment>("PopNextSegment");
     factory_.registerNodeType<r2_bt::PopNextMeilinSegment>("PopNextMeilinSegment");
     factory_.registerNodeType<r2_bt::SuspensionControl>("SuspensionControl");
     factory_.registerNodeType<r2_bt::AresToolAction>("AresToolAction");
     factory_.registerNodeType<r2_bt::PickAction>("PickAction");
     factory_.registerNodeType<r2_bt::PlaceObjectPlaceholder>("PlaceObjectPlaceholder");
+    factory_.registerNodeType<r2_bt::PublishChassisHeight>("PublishChassisHeight");
     factory_.registerNodeType<r2_bt::SelectFinalTarget>("SelectFinalTarget");
     factory_.registerNodeType<r2_bt::WaitArmIdle>("WaitArmIdle");
     factory_.registerNodeType<r2_bt::WaitForIntSignal>("WaitForIntSignal");
@@ -825,10 +829,10 @@ private:
                          final_cfg, "place_signal_timeout_sec", 0.0));
     blackboard_->set("final_post_place_wait_sec",
                      yaml_value<double>(final_cfg, "post_place_wait_sec", 3.0));
+    load_final_chassis_height_config(final_cfg["chassis_height"]);
     const double standby_x = yaml_value<double>(standby, "target_x", 0.0);
     const double standby_y = yaml_value<double>(standby, "target_y", 0.0);
     const double standby_yaw = yaml_value<double>(standby, "target_yaw", 0.0);
-    const double standby_max_speed = yaml_value<double>(standby, "max_speed", 0.4);
     const int standby_pid_profile = yaml_value<int>(standby, "pid_profile", 1);
     const double standby_timeout_sec = yaml_value<double>(standby, "timeout_sec", 60.0);
     blackboard_->set("final_standby_target_x",
@@ -837,8 +841,6 @@ private:
                      standby_y);
     blackboard_->set("final_standby_target_yaw",
                      standby_yaw);
-    blackboard_->set("final_standby_max_speed",
-                     standby_max_speed);
     blackboard_->set("final_standby_pid_profile",
                      standby_pid_profile);
     blackboard_->set("final_standby_timeout_sec",
@@ -846,16 +848,95 @@ private:
 
     const double side_sign = standby_y < 0.0 ? -1.0 : 1.0;
     const auto standby_waypoints = final_cfg["standby_waypoints"];
-    load_final_waypoint("final_standby_wp1_", standby_waypoints && standby_waypoints.size() > 0
-                                                   ? standby_waypoints[0] : YAML::Node{},
-                        7.80, side_sign * 0.60, standby_yaw, 0.4, 1, 30.0);
-    load_final_waypoint("final_standby_wp2_", standby_waypoints && standby_waypoints.size() > 1
-                                                   ? standby_waypoints[1] : YAML::Node{},
-                        8.60, side_sign * 1.00, standby_yaw, 0.4, 1, 30.0);
-    load_final_waypoint("final_standby_wp3_", standby_waypoints && standby_waypoints.size() > 2
-                                                   ? standby_waypoints[2] : YAML::Node{},
-                        standby_x, standby_y, standby_yaw,
-                        standby_max_speed, standby_pid_profile, standby_timeout_sec);
+    const int configured_waypoint_count =
+        yaml_value<int>(final_cfg, "standby_waypoint_count", 0);
+    blackboard_->set("final_standby_waypoint_count", configured_waypoint_count);
+    auto final_waypoints = std::make_shared<r2_bt::FinalWaypointList>();
+    if (standby_waypoints && standby_waypoints.IsSequence() &&
+        standby_waypoints.size() > 0)
+    {
+      std::size_t waypoint_count = standby_waypoints.size();
+      if (configured_waypoint_count > 0)
+      {
+        const auto requested_count =
+            static_cast<std::size_t>(configured_waypoint_count);
+        if (requested_count > waypoint_count)
+        {
+          RCLCPP_WARN(get_logger(),
+                      "final_area.standby_waypoint_count=%zu exceeds "
+                      "standby_waypoints size=%zu; using all configured waypoints.",
+                      requested_count, waypoint_count);
+        }
+        waypoint_count = std::min(waypoint_count, requested_count);
+      }
+      else if (configured_waypoint_count < 0)
+      {
+        RCLCPP_WARN(get_logger(),
+                    "final_area.standby_waypoint_count=%d is invalid; "
+                    "using all configured waypoints.",
+                    configured_waypoint_count);
+      }
+
+      for (std::size_t i = 0; i < waypoint_count; ++i)
+      {
+        const bool is_wp1 = i == 0;
+        const bool is_wp2 = i == 1;
+        final_waypoints->push_back(make_final_waypoint(
+            standby_waypoints[i],
+            is_wp1 ? 7.80 : (is_wp2 ? 8.60 : standby_x),
+            is_wp1 ? side_sign * 0.60 : (is_wp2 ? side_sign * 1.00 : standby_y),
+            standby_yaw,
+            is_wp1 || is_wp2 ? 1 : standby_pid_profile,
+            is_wp1 || is_wp2 ? 30.0 : standby_timeout_sec));
+      }
+    }
+    else
+    {
+      std::size_t waypoint_count = 3;
+      if (configured_waypoint_count > 0)
+      {
+        const auto requested_count =
+            static_cast<std::size_t>(configured_waypoint_count);
+        if (requested_count > waypoint_count)
+        {
+          RCLCPP_WARN(get_logger(),
+                      "final_area.standby_waypoint_count=%zu requested but "
+                      "no standby_waypoints list is configured; using the "
+                      "3 default waypoints.",
+                      requested_count);
+        }
+        waypoint_count = std::min(waypoint_count, requested_count);
+      }
+      else if (configured_waypoint_count < 0)
+      {
+        RCLCPP_WARN(get_logger(),
+                    "final_area.standby_waypoint_count=%d is invalid; "
+                    "using the 3 default waypoints.",
+                    configured_waypoint_count);
+      }
+
+      if (waypoint_count >= 1)
+      {
+        final_waypoints->push_back(
+            make_final_waypoint(YAML::Node{}, 7.80, side_sign * 0.60,
+                                standby_yaw, 1, 30.0));
+      }
+      if (waypoint_count >= 2)
+      {
+        final_waypoints->push_back(
+            make_final_waypoint(YAML::Node{}, 8.60, side_sign * 1.00,
+                                standby_yaw, 1, 30.0));
+      }
+      if (waypoint_count >= 3)
+      {
+        final_waypoints->push_back(
+            make_final_waypoint(YAML::Node{}, standby_x, standby_y, standby_yaw,
+                                standby_pid_profile, standby_timeout_sec));
+      }
+    }
+    blackboard_->set("final_standby_waypoints", final_waypoints);
+    RCLCPP_INFO(get_logger(), "FinalArea standby waypoints loaded: %zu",
+                final_waypoints->size());
 
     const auto place_action = final_cfg["place_action"];
     blackboard_->set("final_place_action_service_name",
@@ -902,8 +983,6 @@ private:
                        yaml_value<double>(target, "target_y", 0.0));
       blackboard_->set(prefix + "target_yaw",
                        yaml_value<double>(target, "target_yaw", 0.0));
-      blackboard_->set(prefix + "max_speed",
-                       yaml_value<double>(target, "max_speed", 0.4));
       blackboard_->set(prefix + "pid_profile",
                        yaml_value<int>(target, "pid_profile", 1));
       blackboard_->set(prefix + "timeout_sec",
@@ -953,27 +1032,41 @@ private:
                      yaml_value<std::string>(node, "frame_id", "map"));
   }
 
-  void load_final_waypoint(const std::string& prefix,
-                           const YAML::Node& node,
-                           double fallback_x,
-                           double fallback_y,
-                           double fallback_yaw,
-                           double fallback_max_speed,
-                           int fallback_pid_profile,
-                           double fallback_timeout_sec)
+  r2_bt::FinalWaypoint make_final_waypoint(const YAML::Node& node,
+                                           double fallback_x,
+                                           double fallback_y,
+                                           double fallback_yaw,
+                                           int fallback_pid_profile,
+                                           double fallback_timeout_sec)
   {
-    blackboard_->set(prefix + "target_x",
-                     yaml_value<double>(node, "target_x", fallback_x));
-    blackboard_->set(prefix + "target_y",
-                     yaml_value<double>(node, "target_y", fallback_y));
-    blackboard_->set(prefix + "target_yaw",
-                     yaml_value<double>(node, "target_yaw", fallback_yaw));
-    blackboard_->set(prefix + "max_speed",
-                     yaml_value<double>(node, "max_speed", fallback_max_speed));
-    blackboard_->set(prefix + "pid_profile",
-                     yaml_value<int>(node, "pid_profile", fallback_pid_profile));
-    blackboard_->set(prefix + "timeout_sec",
-                     yaml_value<double>(node, "timeout_sec", fallback_timeout_sec));
+    r2_bt::FinalWaypoint waypoint;
+    waypoint.target_x = yaml_value<double>(node, "target_x", fallback_x);
+    waypoint.target_y = yaml_value<double>(node, "target_y", fallback_y);
+    waypoint.target_yaw = yaml_value<double>(node, "target_yaw", fallback_yaw);
+    waypoint.pid_profile = yaml_value<int>(node, "pid_profile", fallback_pid_profile);
+    waypoint.timeout_sec =
+        yaml_value<double>(node, "timeout_sec", fallback_timeout_sec);
+    return waypoint;
+  }
+
+  void load_final_chassis_height_config(const YAML::Node& node)
+  {
+    const auto topic =
+        yaml_value<std::string>(node, "topic", "t0x0112_final");
+    blackboard_->set("final_chassis_height_topic", topic);
+    blackboard_->set("final_chassis_height_wp1",
+                     yaml_value<double>(node, "waypoint1_height", 60.0));
+    blackboard_->set("final_chassis_height_wp3",
+                     yaml_value<double>(node, "waypoint3_height", 20.0));
+    blackboard_->set("final_chassis_height_settle_sec",
+                     yaml_value<double>(node, "settle_sec", 0.2));
+
+    auto publisher =
+        create_publisher<std_msgs::msg::Float32MultiArray>(topic, 10);
+    blackboard_->set("final_chassis_height_publisher", publisher);
+    RCLCPP_INFO(get_logger(),
+                "FinalArea chassis height publisher initialized: topic=%s",
+                topic.c_str());
   }
 
   template <typename T>
@@ -1084,39 +1177,30 @@ private:
                      final_cfg.value("place_signal_timeout_sec", 0.0));
     blackboard_->set("final_post_place_wait_sec",
                      final_cfg.value("post_place_wait_sec", 3.0));
+    load_final_chassis_height_config(YAML::Node{});
 
     const double standby_x = standby.value("target_x", 0.0);
     const double standby_y = standby.value("target_y", 0.0);
     const double standby_yaw = standby.value("target_yaw", 0.0);
-    const double standby_max_speed = standby.value("max_speed", 0.4);
     const int standby_pid_profile = standby.value("pid_profile", 1);
     const double standby_timeout_sec = standby.value("timeout_sec", 60.0);
     blackboard_->set("final_standby_target_x", standby_x);
     blackboard_->set("final_standby_target_y", standby_y);
     blackboard_->set("final_standby_target_yaw", standby_yaw);
-    blackboard_->set("final_standby_max_speed", standby_max_speed);
     blackboard_->set("final_standby_pid_profile", standby_pid_profile);
     blackboard_->set("final_standby_timeout_sec", standby_timeout_sec);
 
     const double side_sign = standby_y < 0.0 ? -1.0 : 1.0;
-    blackboard_->set("final_standby_wp1_target_x", 7.80);
-    blackboard_->set("final_standby_wp1_target_y", side_sign * 0.60);
-    blackboard_->set("final_standby_wp1_target_yaw", standby_yaw);
-    blackboard_->set("final_standby_wp1_max_speed", 0.4);
-    blackboard_->set("final_standby_wp1_pid_profile", 1);
-    blackboard_->set("final_standby_wp1_timeout_sec", 30.0);
-    blackboard_->set("final_standby_wp2_target_x", 8.60);
-    blackboard_->set("final_standby_wp2_target_y", side_sign * 1.00);
-    blackboard_->set("final_standby_wp2_target_yaw", standby_yaw);
-    blackboard_->set("final_standby_wp2_max_speed", 0.4);
-    blackboard_->set("final_standby_wp2_pid_profile", 1);
-    blackboard_->set("final_standby_wp2_timeout_sec", 30.0);
-    blackboard_->set("final_standby_wp3_target_x", standby_x);
-    blackboard_->set("final_standby_wp3_target_y", standby_y);
-    blackboard_->set("final_standby_wp3_target_yaw", standby_yaw);
-    blackboard_->set("final_standby_wp3_max_speed", standby_max_speed);
-    blackboard_->set("final_standby_wp3_pid_profile", standby_pid_profile);
-    blackboard_->set("final_standby_wp3_timeout_sec", standby_timeout_sec);
+    blackboard_->set("final_standby_waypoint_count", 0);
+    auto final_waypoints = std::make_shared<r2_bt::FinalWaypointList>();
+    final_waypoints->push_back(make_final_waypoint(
+        YAML::Node{}, 7.80, side_sign * 0.60, standby_yaw, 1, 30.0));
+    final_waypoints->push_back(make_final_waypoint(
+        YAML::Node{}, 8.60, side_sign * 1.00, standby_yaw, 1, 30.0));
+    final_waypoints->push_back(make_final_waypoint(
+        YAML::Node{}, standby_x, standby_y, standby_yaw,
+        standby_pid_profile, standby_timeout_sec));
+    blackboard_->set("final_standby_waypoints", final_waypoints);
 
     blackboard_->set("final_place_action_service_name",
                      final_cfg.value("place_service_name", "/ares_tool_node/tool_action"));
@@ -1146,7 +1230,6 @@ private:
           blackboard_->set(prefix + "target_x", target.value("target_x", 0.0));
           blackboard_->set(prefix + "target_y", target.value("target_y", 0.0));
           blackboard_->set(prefix + "target_yaw", target.value("target_yaw", 0.0));
-          blackboard_->set(prefix + "max_speed", target.value("max_speed", 0.4));
           blackboard_->set(prefix + "pid_profile", target.value("pid_profile", 1));
           blackboard_->set(prefix + "timeout_sec", target.value("timeout_sec", 30.0));
           return true;
@@ -1670,7 +1753,6 @@ private:
         if (segment.segment_type == "SPEAR_PREP")
         {
           load_move_target(item, segment);
-          segment.max_speed = item.value("max_speed", 0.4);
           segment.timeout_sec = item.value("timeout_sec", 30.0);
           segment.spear_command = 1;
         }
@@ -1682,7 +1764,6 @@ private:
         else if (segment.segment_type == "ALIGN")
         {
           load_move_target(item, segment);
-          segment.max_speed = item.value("max_speed", 0.4);
           segment.timeout_sec = item.value("timeout_sec", 30.0);
         }
         else if (segment.segment_type == "DOCK")
@@ -1692,7 +1773,6 @@ private:
         else if (segment.segment_type == "MOVE2")
         {
           load_move_target(item, segment);
-          segment.max_speed = item.value("max_speed", 0.5);
           segment.timeout_sec = item.value("timeout_sec", 30.0);
         }
         else if (segment.segment_type == "GRASP")
@@ -1709,7 +1789,6 @@ private:
           segment.climb_direction =
               parse_climb_direction(item.at("climb_direction").get<std::string>());
           segment.climb_height = item.at("climb_height").get<double>();
-          segment.max_speed = item.value("max_speed", 0.4);
           segment.timeout_sec = item.value("timeout_sec", 30.0);
           segment.arm_command = parse_arm_command(item.value("arm_command", ""));
           segment.wait_result = item.value("wait_result", true);
@@ -1729,7 +1808,6 @@ private:
         else if (segment.segment_type == "EXIT")
         {
           load_move_target(item, segment);
-          segment.max_speed = item.value("max_speed", 0.6);
           segment.timeout_sec = item.value("timeout_sec", 30.0);
           segment.arm_command = 7;
           segment.wait_result = true;
@@ -1737,7 +1815,6 @@ private:
         else if (segment.segment_type == "FINAL_MOVE2")
         {
           load_move_target(item, segment);
-          segment.max_speed = item.value("max_speed", 0.4);
           segment.timeout_sec = item.value("timeout_sec", 30.0);
         }
         else if (segment.segment_type == "PLACE_MID")

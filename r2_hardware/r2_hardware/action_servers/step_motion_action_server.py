@@ -24,20 +24,25 @@ from rclpy.executors import MultiThreadedExecutor
 
 class State(Enum):
     IDLE = 0
-    UP_1_PREPARE = 10
-    UP_2_LIFT = 11
-    UP_3_FRONT_DOCK = 12
-    UP_4_RETRACT_FRONT = 13
-    UP_5_FRONT_LAND = 14
-    UP_6_SIDE_DOCK_RETRACT_REAR = 15
-    UP_7_REAR_LAND = 16
-    UP_8_RECOVER = 17
+    UP_1_RAISE_ALL_TO_PREPARE = 10
+    UP_2_DETECT_STEP_HEIGHT = 11
+    UP_3_RAISE_ALL_FOR_HIGH_STEP = 12
+    UP_4_FRONT_DOCK_APPROACH = 13
+    UP_5_RETRACT_FRONT_WHEELS = 14
+    UP_6_WAIT_FRONT_LAND_SENSOR = 15
+    UP_7_RAISE_REAR_AFTER_FRONT_LAND = 16
+    UP_8_WAIT_REAR_DOCK_SENSOR = 17
+    UP_9_RETRACT_REAR_WHEELS = 18
+    UP_10_WAIT_REAR_LAND_SENSOR = 19
+    UP_11_LOWER_REAR_AFTER_LAND = 20
+    UP_12_RECOVER_ALL = 21
 
-    DOWN_1_PREPARE = 20
-    DOWN_2_FRONT_HOVER_LAND = 21
-    DOWN_3_WAIT_REAR_HOVER_LAND = 22
-    DOWN_4_REAR_HOVER_LAND = 23
-    DOWN_5_RECOVERY = 24
+    DOWN_1_PREPARE_AND_WAIT_FRONT_EDGE = 30
+    DOWN_2_LOWER_FRONT_WHEELS = 31
+    DOWN_3_WAIT_REAR_EDGE_SENSOR = 32
+    DOWN_4_LOWER_REAR_WHEELS = 33
+    DOWN_5_WAIT_REAR_CLEAR_DISTANCE = 34
+    DOWN_6_RECOVER_ALL = 35
 
 
 class Direction(Enum):
@@ -163,147 +168,130 @@ class StepMotionActionServer(Node):
         self.declare_parameter('step_motion.max_start_yaw_error_deg', 30.0)
 
         self._stage_speed_suffixes = {
-            State.UP_1_PREPARE: 'up_1_prepare',
-            State.UP_2_LIFT: 'up_2_lift',
-            State.UP_3_FRONT_DOCK: 'up_3_front_dock',
-            State.UP_4_RETRACT_FRONT: 'up_4_retract_front',
-            State.UP_5_FRONT_LAND: 'up_5_front_land',
-            State.UP_6_SIDE_DOCK_RETRACT_REAR:
-                'up_6_side_dock_retract_rear',
-            State.UP_7_REAR_LAND: 'up_7_rear_land',
-            State.UP_8_RECOVER: 'up_8_recover',
-            State.DOWN_1_PREPARE: 'down_1_prepare',
-            State.DOWN_2_FRONT_HOVER_LAND: 'down_2_front_hover_land',
-            State.DOWN_3_WAIT_REAR_HOVER_LAND:
-                'down_3_wait_rear_hover_land',
-            State.DOWN_4_REAR_HOVER_LAND: 'down_4_rear_hover_land',
-            State.DOWN_5_RECOVERY: 'down_5_recovery',
+            State.UP_1_RAISE_ALL_TO_PREPARE: 'up_1_raise_all_to_prepare',
+            State.UP_2_DETECT_STEP_HEIGHT: 'up_2_detect_step_height',
+            State.UP_3_RAISE_ALL_FOR_HIGH_STEP: 'up_3_raise_all_for_high_step',
+            State.UP_4_FRONT_DOCK_APPROACH: 'up_4_front_dock_approach',
+            State.UP_5_RETRACT_FRONT_WHEELS: 'up_5_retract_front_wheels',
+            State.UP_6_WAIT_FRONT_LAND_SENSOR: 'up_6_wait_front_land_sensor',
+            State.UP_7_RAISE_REAR_AFTER_FRONT_LAND:
+                'up_7_raise_rear_after_front_land',
+            State.UP_8_WAIT_REAR_DOCK_SENSOR: 'up_8_wait_rear_dock_sensor',
+            State.UP_9_RETRACT_REAR_WHEELS: 'up_9_retract_rear_wheels',
+            State.UP_10_WAIT_REAR_LAND_SENSOR: 'up_10_wait_rear_land_sensor',
+            State.UP_11_LOWER_REAR_AFTER_LAND: 'up_11_lower_rear_after_land',
+            State.UP_12_RECOVER_ALL: 'up_12_recover_all',
+            State.DOWN_1_PREPARE_AND_WAIT_FRONT_EDGE:
+                'down_1_prepare_and_wait_front_edge',
+            State.DOWN_2_LOWER_FRONT_WHEELS: 'down_2_lower_front_wheels',
+            State.DOWN_3_WAIT_REAR_EDGE_SENSOR:
+                'down_3_wait_rear_edge_sensor',
+            State.DOWN_4_LOWER_REAR_WHEELS: 'down_4_lower_rear_wheels',
+            State.DOWN_5_WAIT_REAR_CLEAR_DISTANCE:
+                'down_5_wait_rear_clear_distance',
+            State.DOWN_6_RECOVER_ALL: 'down_6_recover_all',
         }
 
         self._declare_stage_height_parameters()
 
-        # 200mm 台阶速度参数。速度沿上下台阶方向，单位 m/s。
-        # 上台阶: 四轮先抬到准备高度，通常原地等待悬挂到位。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_1_prepare', 1.0)
-        # 上台阶: 未知台阶高度时继续判断高/低台阶，通常原地等待。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_2_lift', 1.0)
-        # 上台阶: 前轮对接台阶边缘，需要沿台阶方向向前贴近。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_3_front_dock', 0.40)
-        # 上台阶: 收前轮悬挂，避免边走边收导致前轮落点不稳。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_4_retract_front', 0.5)
-        # 上台阶: 前轮落地后轻推，让车身稳定进入台阶面。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_5_front_land', 1.0)
-        # 上台阶: 后轮靠近台阶并收后轮，是主要向前推进阶段。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_200.up_6_side_dock_retract_rear',
-            0.5,
-        )
-        # 上台阶: 后轮落地阶段，低速保持前进避免冲过头。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_7_rear_land', 1.0)
-        # 上台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
-        self.declare_parameter('step_motion.stage_speed.height_200.up_8_recover', 1.0)
-        # 下台阶: 降到下台阶准备高度，通常原地等待检测边缘。
-        self.declare_parameter('step_motion.stage_speed.height_200.down_1_prepare', 0.8)
-        # 下台阶: 前轮悬空/落地阶段，低速向前送前轮。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_200.down_2_front_hover_land',
-            0.80,
-        )
-        # 下台阶: 等待后轮到达台阶边缘，继续沿台阶方向向前。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_200.down_3_wait_rear_hover_land',
-            0.8,
-        )
-        # 下台阶: 后轮悬空/落地阶段，继续沿台阶方向向前。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_200.down_4_rear_hover_land',
-            0.8,
-        )
-        # 下台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
-        self.declare_parameter('step_motion.stage_speed.height_200.down_5_recovery', 0.8)
-
-        # 400mm 台阶速度参数。和 200mm 分开显式声明，方便单独调参。
-        # 上台阶: 四轮先抬到准备高度，通常原地等待悬挂到位。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_1_prepare', 0.8)
-        # 上台阶: 未知台阶高度时继续判断高/低台阶，通常原地等待。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_2_lift', 0.8)
-        # 上台阶: 前轮对接台阶边缘，需要沿台阶方向向前贴近。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_3_front_dock', 0.50)
-        # 上台阶: 收前轮悬挂，避免边走边收导致前轮落点不稳。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_4_retract_front', 0.2)
-        # 上台阶: 前轮落地后轻推，让车身稳定进入台阶面。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_5_front_land', 0.8)
-        # 上台阶: 后轮靠近台阶并收后轮，是主要向前推进阶段。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_400.up_6_side_dock_retract_rear',
-            0.2,
-        )
-        # 上台阶: 后轮落地阶段，低速保持前进避免冲过头。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_7_rear_land', 0.8)
-        # 上台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
-        self.declare_parameter('step_motion.stage_speed.height_400.up_8_recover', 0.8)
-        # 下台阶: 降到下台阶准备高度，通常原地等待检测边缘。
-        self.declare_parameter('step_motion.stage_speed.height_400.down_1_prepare', 0.8)
-        # 下台阶: 前轮悬空/落地阶段，低速向前送前轮。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_400.down_2_front_hover_land',
-            0.20,
-        )
-        # 下台阶: 等待后轮到达台阶边缘，继续沿台阶方向向前。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_400.down_3_wait_rear_hover_land',
-            0.3,
-        )
-        # 下台阶: 后轮悬空/落地阶段，继续沿台阶方向向前。
-        self.declare_parameter(
-            'step_motion.stage_speed.height_400.down_4_rear_hover_land',
-            0.3,
-        )
-        # 下台阶: 四轮恢复行驶高度，通常原地等待恢复完成。
-        self.declare_parameter('step_motion.stage_speed.height_400.down_5_recovery', 0.8)
+        self._declare_stage_speed_parameters()
 
         # 仅前向上台阶使用: 根据前向 TOF 距离动态覆盖前轮搭上台阶前速度。
         # 距离 >= max_distance_mm 时使用 max_speed，距离 <= min_distance_mm 时使用 min_speed。
-        self.declare_parameter('step_motion.forward_up_speed_by_distance.enabled', True)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.enabled', False)
         self.declare_parameter('step_motion.forward_up_speed_by_distance.min_distance_mm', 80.0)
-        self.declare_parameter('step_motion.forward_up_speed_by_distance.max_distance_mm', 200.0)
-        self.declare_parameter('step_motion.forward_up_speed_by_distance.min_speed', 0.3)
-        self.declare_parameter('step_motion.forward_up_speed_by_distance.max_speed', 1.0)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.max_distance_mm', 300.0)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.min_speed', 0.2)
+        self.declare_parameter('step_motion.forward_up_speed_by_distance.max_speed', 0.8)
 
         self.step_relocation_topic = self.get_parameter(
             'step_motion.relocation_topic').value
         self.step_velocity_topic = self.get_parameter(
             'step_motion.velocity_topic').value
 
+    def _declare_stage_speed_parameters(self):
+        # 速度沿上下台阶方向，单位 m/s。拆分后的状态默认沿用拆分前的速度。
+        speed_defaults = {
+            '200': {
+                'up_1_raise_all_to_prepare': 0.6,
+                'up_2_detect_step_height': 0.6,
+                'up_3_raise_all_for_high_step': 0.5,
+                'up_4_front_dock_approach': 0.5,
+                'up_5_retract_front_wheels': 0.1,
+                'up_6_wait_front_land_sensor': 1.2,
+                'up_7_raise_rear_after_front_land': 1.2,
+                'up_8_wait_rear_dock_sensor': 0.5,
+                'up_9_retract_rear_wheels': 0.1,
+                'up_10_wait_rear_land_sensor': 1.2,
+                'up_11_lower_rear_after_land': 1.2,
+                'up_12_recover_all': 1.2,
+                'down_1_prepare_and_wait_front_edge': 0.8,
+                'down_2_lower_front_wheels': 0.80,
+                'down_3_wait_rear_edge_sensor': 0.8,
+                'down_4_lower_rear_wheels': 0.6,
+                'down_5_wait_rear_clear_distance': 0.8,
+                'down_6_recover_all': 0.4,
+            },
+            '400': {
+                'up_1_raise_all_to_prepare': 0.5,
+                'up_2_detect_step_height': 0.5,
+                'up_3_raise_all_for_high_step': 0.5,
+                'up_4_front_dock_approach': 0.40,
+                'up_5_retract_front_wheels': 0.1,
+                'up_6_wait_front_land_sensor': 1.0,
+                'up_7_raise_rear_after_front_land': 1.0,
+                'up_8_wait_rear_dock_sensor': 0.5,
+                'up_9_retract_rear_wheels': 0.1,
+                'up_10_wait_rear_land_sensor': 1.0,
+                'up_11_lower_rear_after_land': 1.0,
+                'up_12_recover_all': 1.0,
+                'down_1_prepare_and_wait_front_edge': 0.3,
+                'down_2_lower_front_wheels': 0.30,
+                'down_3_wait_rear_edge_sensor': 0.4,
+                'down_4_lower_rear_wheels': 0.1,
+                'down_5_wait_rear_clear_distance': 0.4,
+                'down_6_recover_all': 0.4,
+            },
+        }
+
+        for profile, stage_defaults in speed_defaults.items():
+            for suffix, default in stage_defaults.items():
+                self.declare_parameter(
+                    f'step_motion.stage_speed.height_{profile}.{suffix}',
+                    default,
+                )
+
     def _declare_stage_height_parameters(self):
         # 高度单位: mm。front/rear 均为虚拟方向上的前/后轮组，all 表示四轮。
         # 和 stage_speed 一样分 200/400 两套，方便实车调参时直接覆盖。
         profile_defaults = {
             '200': {
-                'up_1_prepare': {'all': 205.0},
-                'up_2_lift': {'all': 205.0},
-                'up_4_retract_front': {'front': 2.0},
-                'up_5_front_land': {'front': 2.0, 'rear': 207.0},
-                'up_6_side_dock_retract_rear': {'rear': -2.0},
-                'up_7_rear_land': {'rear': 10.0},
-                'up_8_recover': {'all': 20.0},
-                'down_1_prepare': {'all': 5.0},
-                'down_2_front_hover_land': {'front': 215.0},
-                'down_4_rear_hover_land': {'rear': 215.0},
-                'down_5_recovery': {'all': 20.0},
+                'up_1_raise_all_to_prepare': {'all': 205.0},
+                'up_3_raise_all_for_high_step': {'all': 205.0},
+                'up_5_retract_front_wheels': {'front': 2.0},
+                'up_7_raise_rear_after_front_land':
+                    {'front': 2.0, 'rear': 207.0},
+                'up_9_retract_rear_wheels': {'rear': -2.0},
+                'up_11_lower_rear_after_land': {'rear': 10.0},
+                'up_12_recover_all': {'all': 20.0},
+                'down_1_prepare_and_wait_front_edge': {'all': 5.0},
+                'down_2_lower_front_wheels': {'front': 215.0},
+                'down_4_lower_rear_wheels': {'rear': 215.0},
+                'down_6_recover_all': {'all': 20.0},
             },
             '400': {
-                'up_1_prepare': {'all': 410.0},
-                'up_2_lift': {'all': 410.0},
-                'up_4_retract_front': {'front': 2.0},
-                'up_5_front_land': {'front': 2.0, 'rear': 412.0},
-                'up_6_side_dock_retract_rear': {'rear': -2.0},
-                'up_7_rear_land': {'rear': 10.0},
-                'up_8_recover': {'all': 20.0},
-                'down_1_prepare': {'all': 5.0},
-                'down_2_front_hover_land': {'front': 420.0},
-                'down_4_rear_hover_land': {'rear': 420.0},
-                'down_5_recovery': {'all': 20.0},
+                'up_1_raise_all_to_prepare': {'all': 410.0},
+                'up_3_raise_all_for_high_step': {'all': 410.0},
+                'up_5_retract_front_wheels': {'front': 2.0},
+                'up_7_raise_rear_after_front_land':
+                    {'front': 2.0, 'rear': 412.0},
+                'up_9_retract_rear_wheels': {'rear': -2.0},
+                'up_11_lower_rear_after_land': {'rear': 10.0},
+                'up_12_recover_all': {'all': 20.0},
+                'down_1_prepare_and_wait_front_edge': {'all': 5.0},
+                'down_2_lower_front_wheels': {'front': 420.0},
+                'down_4_lower_rear_wheels': {'rear': 420.0},
+                'down_6_recover_all': {'all': 20.0},
             },
         }
 
@@ -413,8 +401,8 @@ class StepMotionActionServer(Node):
 
         self.current_direction = Direction(direction)
         self.current_state = {
-            1: State.UP_1_PREPARE,
-            2: State.DOWN_1_PREPARE,
+            1: State.UP_1_RAISE_ALL_TO_PREPARE,
+            2: State.DOWN_1_PREPARE_AND_WAIT_FRONT_EDGE,
         }.get(mode, State.IDLE)
         if direct_height_mode:
             self.wheel_heights_target = [height] * 4
@@ -573,7 +561,8 @@ class StepMotionActionServer(Node):
     def _map_step_height_to_prepare_height(self, step_height):
         """Map a known stair height to the suspension preparation height."""
         profile = self._height_profile_for_step_height(step_height)
-        return self._stage_height_for_profile(profile, State.UP_1_PREPARE, 'all')
+        return self._stage_height_for_profile(
+            profile, State.UP_1_RAISE_ALL_TO_PREPARE, 'all')
 
     def _height_profile_for_step_height(self, step_height):
         return '400' if step_height > 300.0 else '200'
@@ -621,16 +610,17 @@ class StepMotionActionServer(Node):
 
     def _reset_active_step_state(self):
         down_states = {
-            State.DOWN_1_PREPARE,
-            State.DOWN_2_FRONT_HOVER_LAND,
-            State.DOWN_3_WAIT_REAR_HOVER_LAND,
-            State.DOWN_4_REAR_HOVER_LAND,
-            State.DOWN_5_RECOVERY,
+            State.DOWN_1_PREPARE_AND_WAIT_FRONT_EDGE,
+            State.DOWN_2_LOWER_FRONT_WHEELS,
+            State.DOWN_3_WAIT_REAR_EDGE_SENSOR,
+            State.DOWN_4_LOWER_REAR_WHEELS,
+            State.DOWN_5_WAIT_REAR_CLEAR_DISTANCE,
+            State.DOWN_6_RECOVER_ALL,
         }
         recover_state = (
-            State.DOWN_5_RECOVERY
+            State.DOWN_6_RECOVER_ALL
             if self.current_state in down_states
-            else State.UP_8_RECOVER
+            else State.UP_12_RECOVER_ALL
         )
         recover_height = self._stage_height_for_profile(
             self._stage_speed_level, recover_state, 'all')
@@ -693,9 +683,10 @@ class StepMotionActionServer(Node):
         if self.current_direction != Direction.FORWARD:
             return None
         if self.current_state not in (
-            State.UP_3_FRONT_DOCK,
-            State.UP_4_RETRACT_FRONT,
-            State.UP_5_FRONT_LAND,
+            State.UP_4_FRONT_DOCK_APPROACH,
+            State.UP_5_RETRACT_FRONT_WHEELS,
+            State.UP_6_WAIT_FRONT_LAND_SENSOR,
+            State.UP_7_RAISE_REAR_AFTER_FRONT_LAND,
         ):
             return None
         enabled = bool(self.get_parameter(
@@ -703,7 +694,7 @@ class StepMotionActionServer(Node):
         if not enabled:
             return None
 
-        front_distance = self._get_v_distance(0)
+        front_distance = self._get_v_distance(1)
         if not math.isfinite(front_distance):
             return None
 
@@ -848,106 +839,123 @@ class StepMotionActionServer(Node):
             if self._idle_debug_counter % 50 == 0:
                 self.get_logger().info(
                     f'状态0: 方向={self.current_direction.name}, '
-                    f'v0_dist={self._format_distance(idle_v0_dist)}, '
-                    f'v1_dist={self._format_distance(idle_v1_dist)}, '
+                    f'v0_down_dist={self._format_distance(idle_v0_dist)}, '
+                    f'v1_front_dist={self._format_distance(idle_v1_dist)}, '
                     f'上升条件={cond_up}, 下降条件={cond_down}, '
                     f'上升稳定计数={self._stable_counters.get("idle_to_up", 0)}, '
                     f'下降稳定计数={self._stable_counters.get("idle_to_down", 0)}'
-                )
+            )
 
             if self._is_stable(cond_up, 'idle_to_up'):
-                self.current_state = State.UP_1_PREPARE
+                self.current_state = State.UP_1_RAISE_ALL_TO_PREPARE
             elif self._is_stable(cond_down, 'idle_to_down'):
-                self.current_state = State.DOWN_1_PREPARE
+                self.current_state = State.DOWN_1_PREPARE_AND_WAIT_FRONT_EDGE
 
         # ---- 上台阶 ----
-        elif state == State.UP_1_PREPARE:
-            self.target_height = self._stage_height(State.UP_1_PREPARE, 'all')
+        elif state == State.UP_1_RAISE_ALL_TO_PREPARE:
+            self.target_height = self._stage_height(
+                State.UP_1_RAISE_ALL_TO_PREPARE, 'all')
             self.wheel_heights_target = [self.target_height] * 4
             cond = self.check_height_reached([v_0, v_1, v_2, v_3], self.target_height)
             if self._is_stable(cond, 'up1_height', threshold=2):
                 if self._known_step_height:
-                    self.current_state = State.UP_3_FRONT_DOCK
+                    self.current_state = State.UP_4_FRONT_DOCK_APPROACH
                 else:
-                    self.current_state = State.UP_2_LIFT
+                    self.current_state = State.UP_2_DETECT_STEP_HEIGHT
 
-        elif state == State.UP_2_LIFT:
+        elif state == State.UP_2_DETECT_STEP_HEIGHT:
             v1_dist = self._get_v_distance_safe(1, default=999.0)
             cond_high = v1_dist < 200
             if self._is_stable(cond_high, 'up2_high_dist', threshold=18):
                 self._stage_speed_level = '400'
-                self.target_height = self._stage_height(State.UP_2_LIFT, 'all')
-                self.wheel_heights_target = [self.target_height] * 4
-                cond_h = self.check_height_reached([v_0, v_1, v_2, v_3], self.target_height)
-                if self._is_stable(cond_h, 'up2_height', threshold=2):
-                    self.current_state = State.UP_3_FRONT_DOCK
+                self.current_state = State.UP_3_RAISE_ALL_FOR_HIGH_STEP
             elif self._is_stable(not cond_high, 'up2_low_dist'):
                 self._stage_speed_level = '200'
-                self.current_state = State.UP_3_FRONT_DOCK
+                self.current_state = State.UP_4_FRONT_DOCK_APPROACH
 
-        elif state == State.UP_3_FRONT_DOCK:
-            v0_dist = self._get_v_distance_safe(0, default=999.0)
-            cond = v0_dist < 80.0
-            if self._is_stable(cond, 'up3_dist',threshold=2):
-                self.current_state = State.UP_4_RETRACT_FRONT
+        elif state == State.UP_3_RAISE_ALL_FOR_HIGH_STEP:
+            self.target_height = self._stage_height(
+                State.UP_3_RAISE_ALL_FOR_HIGH_STEP, 'all')
+            self.wheel_heights_target = [self.target_height] * 4
+            cond = self.check_height_reached([v_0, v_1, v_2, v_3], self.target_height)
+            if self._is_stable(cond, 'up3_height', threshold=2):
+                self.current_state = State.UP_4_FRONT_DOCK_APPROACH
 
-        elif state == State.UP_4_RETRACT_FRONT:
-            front_height = self._stage_height(State.UP_4_RETRACT_FRONT, 'front')
+        elif state == State.UP_4_FRONT_DOCK_APPROACH:
+            v1_dist = self._get_v_distance_safe(1, default=999.0)
+            cond = v1_dist < 80.0
+            if self._is_stable(cond, 'up4_dist', threshold=2):
+                self.current_state = State.UP_5_RETRACT_FRONT_WHEELS
+
+        elif state == State.UP_5_RETRACT_FRONT_WHEELS:
+            front_height = self._stage_height(
+                State.UP_5_RETRACT_FRONT_WHEELS, 'front')
             self._set_v_wheel_height([v_0, v_1], front_height)
             cond = self.check_height_reached([v_0, v_1], front_height)
-            if self._is_stable(cond, 'up4_height', threshold=2):
-                self.current_state = State.UP_5_FRONT_LAND
+            if self._is_stable(cond, 'up5_height', threshold=2):
+                self.current_state = State.UP_6_WAIT_FRONT_LAND_SENSOR
 
-        elif state == State.UP_5_FRONT_LAND:
+        elif state == State.UP_6_WAIT_FRONT_LAND_SENSOR:
             cond = self._get_v_pe(v_0) == 1
-            if self._is_stable(cond, 'up5_pe'):
-                front_height = self._stage_height(State.UP_5_FRONT_LAND, 'front')
-                rear_height = self._stage_height(State.UP_5_FRONT_LAND, 'rear')
-                self._set_v_wheel_height([v_0, v_1], front_height)
-                self._set_v_wheel_height([v_2, v_3], rear_height)
-                cond_h = self.check_height_reached([v_2, v_3], rear_height)
-                if self._is_stable(cond_h, 'up5_height', threshold=2):
-                    self.current_state = State.UP_6_SIDE_DOCK_RETRACT_REAR
+            if self._is_stable(cond, 'up6_pe'):
+                self.current_state = State.UP_7_RAISE_REAR_AFTER_FRONT_LAND
 
-        elif state == State.UP_6_SIDE_DOCK_RETRACT_REAR:
+        elif state == State.UP_7_RAISE_REAR_AFTER_FRONT_LAND:
+            front_height = self._stage_height(
+                State.UP_7_RAISE_REAR_AFTER_FRONT_LAND, 'front')
+            rear_height = self._stage_height(
+                State.UP_7_RAISE_REAR_AFTER_FRONT_LAND, 'rear')
+            self._set_v_wheel_height([v_0, v_1], front_height)
+            self._set_v_wheel_height([v_2, v_3], rear_height)
+            cond = self.check_height_reached([v_2, v_3], rear_height)
+            if self._is_stable(cond, 'up7_height', threshold=2):
+                self.current_state = State.UP_8_WAIT_REAR_DOCK_SENSOR
+
+        elif state == State.UP_8_WAIT_REAR_DOCK_SENSOR:
             cond = self._get_v_pe(v_2) == 1
-            up6_pe_stable = self._is_stable(cond, 'up6_pe', threshold=2)
-            cond_h = False
-            if up6_pe_stable:
-                rear_height = self._stage_height(
-                    State.UP_6_SIDE_DOCK_RETRACT_REAR, 'rear')
-                self._set_v_wheel_height([v_2, v_3], rear_height)
-                cond_h = self.check_height_reached([v_2, v_3], rear_height)
-                if self._is_stable(cond_h, 'up6_height', threshold=2):
-                    self.current_state = State.UP_7_REAR_LAND
+            if self._is_stable(cond, 'up8_pe', threshold=2):
+                self.current_state = State.UP_9_RETRACT_REAR_WHEELS
 
-        elif state == State.UP_7_REAR_LAND:
-            cond = self._get_v_pe(v_3) == 1 
-            if self._is_stable(cond, 'up7_pe'):
-                rear_height = self._stage_height(State.UP_7_REAR_LAND, 'rear')
-                self._set_v_wheel_height([v_2, v_3], rear_height)
-                cond_h = self.check_height_reached([v_2, v_3], rear_height)
-                if self._is_stable(cond_h, 'up7_height', threshold=2):
-                    self.current_state = State.UP_8_RECOVER
+        elif state == State.UP_9_RETRACT_REAR_WHEELS:
+            rear_height = self._stage_height(
+                State.UP_9_RETRACT_REAR_WHEELS, 'rear')
+            self._set_v_wheel_height([v_2, v_3], rear_height)
+            cond = self.check_height_reached([v_2, v_3], rear_height)
+            if self._is_stable(cond, 'up9_height', threshold=2):
+                self.current_state = State.UP_10_WAIT_REAR_LAND_SENSOR
 
-        elif state == State.UP_8_RECOVER:
-            recover_height = self._stage_height(State.UP_8_RECOVER, 'all')
+        elif state == State.UP_10_WAIT_REAR_LAND_SENSOR:
+            cond = self._get_v_pe(v_3) == 1
+            if self._is_stable(cond, 'up10_pe'):
+                self.current_state = State.UP_11_LOWER_REAR_AFTER_LAND
+
+        elif state == State.UP_11_LOWER_REAR_AFTER_LAND:
+            rear_height = self._stage_height(
+                State.UP_11_LOWER_REAR_AFTER_LAND, 'rear')
+            self._set_v_wheel_height([v_2, v_3], rear_height)
+            cond = self.check_height_reached([v_2, v_3], rear_height)
+            if self._is_stable(cond, 'up11_height', threshold=2):
+                self.current_state = State.UP_12_RECOVER_ALL
+
+        elif state == State.UP_12_RECOVER_ALL:
+            recover_height = self._stage_height(State.UP_12_RECOVER_ALL, 'all')
             self.wheel_heights_target = [recover_height] * 4
             cond = self.check_height_reached([v_0, v_1, v_2, v_3], recover_height)
-            if self._is_stable(cond, 'up8_height', threshold=2):
+            if self._is_stable(cond, 'up12_height', threshold=2):
                 self.get_logger().info('上台阶序列完成。')
                 self.current_state = State.IDLE
 
         # ---- 下台阶 ----
-        elif state == State.DOWN_1_PREPARE:
-            prepare_height = self._stage_height(State.DOWN_1_PREPARE, 'all')
+        elif state == State.DOWN_1_PREPARE_AND_WAIT_FRONT_EDGE:
+            prepare_height = self._stage_height(
+                State.DOWN_1_PREPARE_AND_WAIT_FRONT_EDGE, 'all')
             self.wheel_heights_target = [prepare_height] * 4
             cond_pe = self._get_v_pe(v_0) == 0
             if self._is_stable(cond_pe, 'down1_pe', threshold=2):
                 if not self._height_latched:
                     if self._requested_height > 0.0:
                         self.target_height = self._stage_height(
-                            State.DOWN_2_FRONT_HOVER_LAND, 'front')
+                            State.DOWN_2_LOWER_FRONT_WHEELS, 'front')
                     else:
                         dist = self._get_v_distance_safe(0, default=0.0)
                         if dist > 380:
@@ -957,44 +965,45 @@ class StepMotionActionServer(Node):
                         else:
                             self._stage_speed_level = '200'
                         self.target_height = self._stage_height(
-                            State.DOWN_2_FRONT_HOVER_LAND, 'front')
+                            State.DOWN_2_LOWER_FRONT_WHEELS, 'front')
                     self._height_latched = True
 
-                self.current_state = State.DOWN_2_FRONT_HOVER_LAND
+                self.current_state = State.DOWN_2_LOWER_FRONT_WHEELS
 
-        elif state == State.DOWN_2_FRONT_HOVER_LAND:
+        elif state == State.DOWN_2_LOWER_FRONT_WHEELS:
             front_height = self._stage_height(
-                State.DOWN_2_FRONT_HOVER_LAND, 'front')
+                State.DOWN_2_LOWER_FRONT_WHEELS, 'front')
             self._set_v_wheel_height([v_0, v_1], front_height)
             cond_h = self.check_height_reached([v_0, v_1], front_height)
             if self._is_stable(cond_h, 'down2_height', threshold=2):
                 self._height_latched = False
-                self.current_state = State.DOWN_3_WAIT_REAR_HOVER_LAND
+                self.current_state = State.DOWN_3_WAIT_REAR_EDGE_SENSOR
 
-        elif state == State.DOWN_3_WAIT_REAR_HOVER_LAND:
+        elif state == State.DOWN_3_WAIT_REAR_EDGE_SENSOR:
             cond_pe = self._get_v_pe(v_3) == 0
             if self._is_stable(cond_pe, 'down3_pe', threshold=2):
-                self.current_state = State.DOWN_4_REAR_HOVER_LAND
+                self.current_state = State.DOWN_4_LOWER_REAR_WHEELS
 
-        elif state == State.DOWN_4_REAR_HOVER_LAND:
+        elif state == State.DOWN_4_LOWER_REAR_WHEELS:
             rear_height = self._stage_height(
-                State.DOWN_4_REAR_HOVER_LAND, 'rear')
+                State.DOWN_4_LOWER_REAR_WHEELS, 'rear')
             self._set_v_wheel_height([v_2, v_3], rear_height)
             cond_h = self.check_height_reached([v_2, v_3], rear_height)
+            if self._is_stable(cond_h, 'down4_height', threshold=2):
+                self.current_state = State.DOWN_5_WAIT_REAR_CLEAR_DISTANCE
+
+        elif state == State.DOWN_5_WAIT_REAR_CLEAR_DISTANCE:
             v3_dist = self._get_v_distance_safe(3, default=0.0)
             cond = v3_dist > 200.0
-            if (
-                self._is_stable(cond_h, 'down4_height', threshold=2)
-                and self._is_stable(cond, 'down4_dist')
-            ):
-                recover_height = self._stage_height(State.DOWN_5_RECOVERY, 'all')
+            if self._is_stable(cond, 'down5_dist'):
+                recover_height = self._stage_height(State.DOWN_6_RECOVER_ALL, 'all')
                 self.wheel_heights_target = [recover_height] * 4
-                self.current_state = State.DOWN_5_RECOVERY
+                self.current_state = State.DOWN_6_RECOVER_ALL
 
-        elif state == State.DOWN_5_RECOVERY:
-            recover_height = self._stage_height(State.DOWN_5_RECOVERY, 'all')
+        elif state == State.DOWN_6_RECOVER_ALL:
+            recover_height = self._stage_height(State.DOWN_6_RECOVER_ALL, 'all')
             cond = self.check_height_reached([v_0, v_1, v_2, v_3], recover_height)
-            if self._is_stable(cond, 'down5_height', threshold=2):
+            if self._is_stable(cond, 'down6_height', threshold=2):
                 self.get_logger().info('下台阶序列完成。')
                 self.current_state = State.IDLE
 

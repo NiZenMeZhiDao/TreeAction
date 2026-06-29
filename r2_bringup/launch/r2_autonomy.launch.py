@@ -77,6 +77,30 @@ def generate_launch_description():
         default_value='1.0',
         description='Maximum allowed relocation pose age before start')
 
+    meilin_motion_mode_arg = DeclareLaunchArgument(
+        'meilin_motion_mode',
+        default_value='single_axis',
+        description='Meilin motion mode: single_axis or omni')
+
+    launch_meilin_web_arg = DeclareLaunchArgument(
+        'launch_meilin_web',
+        default_value='true',
+        description='Start rosbridge and DFS planner for the Meilin web UI')
+
+    rosbridge_port_arg = DeclareLaunchArgument(
+        'rosbridge_port',
+        default_value='9090',
+        description='WebSocket port used by mf_manager.html/path_editor.html')
+
+    mf_planner_params_arg = DeclareLaunchArgument(
+        'mf_planner_params_file',
+        default_value=PathJoinSubstitution([
+            FindPackageShare('mf_action_planner'),
+            'config',
+            'para.yaml',
+        ]),
+        description='Parameter YAML for mf_action_planner dfs_planner_node')
+
     tool_vid_arg = DeclareLaunchArgument(
         'tool_vid',
         default_value='4617',
@@ -112,6 +136,11 @@ def generate_launch_description():
     ])
     meilin_or_full_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'), "' in ['minimal_meilin', 'full']"
+    ])
+    meilin_web_profile = PythonExpression([
+        "'", LaunchConfiguration('startup_profile'),
+        "' in ['minimal_meilin', 'full'] and '",
+        LaunchConfiguration('launch_meilin_web'), "' == 'true'"
     ])
     sensor_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'),
@@ -210,12 +239,15 @@ def generate_launch_description():
         ],
     )
 
-    suspension_action_server = Node(
+    step_motion_action_server = Node(
         condition=IfCondition(meilin_or_full_profile),
         package='r2_hardware',
-        executable='suspension_action_server',
-        name='suspension_action_server',
+        executable='step_motion_action_server',
+        name='step_motion_action_server',
         output='screen',
+        parameters=[{
+            'step_motion.relocation_topic': LaunchConfiguration('relocation_topic'),
+        }],
     )
 
     mf_buffer_node = Node(
@@ -224,6 +256,29 @@ def generate_launch_description():
         executable='mf_buffer_node',
         name='mf_buffer_node',
         output='screen',
+    )
+
+    rosbridge_node = Node(
+        condition=IfCondition(meilin_web_profile),
+        package='rosbridge_server',
+        executable='rosbridge_websocket',
+        name='rosbridge_main',
+        output='screen',
+        parameters=[{
+            'port': ParameterValue(LaunchConfiguration('rosbridge_port'), value_type=int),
+            'default_call_service_timeout': 5.0,
+            'call_services_in_new_thread': True,
+            'send_action_goals_in_new_thread': True,
+        }],
+    )
+
+    dfs_planner_node = Node(
+        condition=IfCondition(meilin_web_profile),
+        package='mf_action_planner',
+        executable='dfs_planner_node',
+        name='dfs_planner_node',
+        output='screen',
+        parameters=[LaunchConfiguration('mf_planner_params_file')],
     )
 
     bt_engine_node = Node(
@@ -243,6 +298,7 @@ def generate_launch_description():
             'mf_action_topic': '/mf_action_seq',
             'buffer_service': '/get_action_seq',
             'meilin_pose_topic': LaunchConfiguration('relocation_topic'),
+            'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
             'autostart': ParameterValue(
                 LaunchConfiguration('autostart'), value_type=bool),
             'default_region': default_region,
@@ -265,6 +321,10 @@ def generate_launch_description():
         tick_frequency_arg,
         require_map_relocalization_arg,
         localization_timeout_arg,
+        meilin_motion_mode_arg,
+        launch_meilin_web_arg,
+        rosbridge_port_arg,
+        mf_planner_params_arg,
         tool_vid_arg,
         tool_pid_arg,
         tool_timeout_arg,
@@ -283,9 +343,13 @@ def generate_launch_description():
         pick_action_launch,
         LogInfo(msg='=== R2 autonomy bringup: action servers ==='),
         motion_action_node,
-        suspension_action_server,
+        step_motion_action_server,
         LogInfo(msg='=== R2 autonomy bringup: planner buffer ==='),
         mf_buffer_node,
+        LogInfo(msg='=== R2 autonomy bringup: Meilin web bridge/planner ===',
+                condition=IfCondition(meilin_web_profile)),
+        rosbridge_node,
+        dfs_planner_node,
         LogInfo(msg='=== R2 autonomy bringup: BT engine gated by /bt_engine/start_autonomy ==='),
         bt_engine_node,
     ])

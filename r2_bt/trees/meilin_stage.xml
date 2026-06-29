@@ -2,9 +2,9 @@
 <!--
   meilin_stage.xml - 梅林赛段行为树
 
-  树只分派 move/fetch；具体底盘、悬挂、机械臂编排封装在节点内部。
-  Move/Fetch 内部自行完成 grid→world、爬台计算、抓取位姿计算。
-  超时等配置从 blackboard 的 meilin_config 读取。
+  树按 Web/Planner 的 move/fetch 队列执行梅林区流程。
+  每个 move 显式执行：计算参数 → StepMotionControl(需要时) → MoveToPose 到目标格中心 → 更新状态。
+  每个 fetch 仍作为独立动作节点，内部处理抓取前平移、必要高度调整与 tool/arm 抓取。
 -->
 <root BTCPP_format="4" main_tree_to_execute="MeilinStage">
   <BehaviorTree ID="MeilinStage">
@@ -21,19 +21,65 @@
                               target_yaw="{target_yaw}"/>
 
         <SwitchSegmentType segment_type="{segment_type}">
-          <Move name="move"
-                move_row="{move_row}"
-                move_col="{move_col}"
-                target_height_mm="{target_height_mm}"
-                target_yaw="{target_yaw}"
-                message="{last_error}"/>
+          <Sequence name="move">
+            <MeilinPlanMove name="MEILIN_01_PLAN_MOVE"
+                            move_row="{move_row}"
+                            move_col="{move_col}"
+                            target_height_mm="{target_height_mm}"
+                            target_yaw="{target_yaw}"
+                            target_x="{move_target_x}"
+                            target_y="{move_target_y}"
+                            move_target_yaw="{move_target_yaw}"
+                            align_timeout_sec="{move_align_timeout_sec}"
+                            entry_move="{move_entry_move}"
+                            step_needed="{move_step_needed}"
+                            center_motion_needed="{move_center_motion_needed}"
+                            step_mode="{move_step_mode}"
+                            step_direction="{move_step_direction}"
+                            step_height="{move_step_height}"
+                            step_correction_x="{move_step_correction_x}"
+                            step_correction_y="{move_step_correction_y}"
+                            step_correction_yaw_deg="{move_step_correction_yaw_deg}"
+                            step_timeout_sec="{move_step_timeout_sec}"
+                            message="{last_error}"/>
 
-          <Fetch name="fetch"
-                 kfs_row="{kfs_row}"
-                 kfs_col="{kfs_col}"
-                 height_diff="{height_diff}"
-                 target_yaw="{target_yaw}"
-                 message="{last_error}"/>
+            <StepMotionControl name="MEILIN_02_STEP_IF_HEIGHT_CHANGED"
+                               enabled="{move_step_needed}"
+                               mode="{move_step_mode}"
+                               direction="{move_step_direction}"
+                               height="{move_step_height}"
+                               correction_x="{move_step_correction_x}"
+                               correction_y="{move_step_correction_y}"
+                               correction_yaw_deg="{move_step_correction_yaw_deg}"
+                               timeout_sec="{move_step_timeout_sec}"
+                               message="{last_error}"/>
+
+            <MoveToPose name="MEILIN_03_MOVE_TO_TARGET_CENTER"
+                        enabled="{move_center_motion_needed}"
+                        target_x="{move_target_x}"
+                        target_y="{move_target_y}"
+                        target_yaw="{move_target_yaw}"
+                        pid_profile="0"
+                        timeout_sec="{move_align_timeout_sec}"
+                        error_msg="{last_error}"/>
+
+            <MeilinCommitMove name="MEILIN_04_COMMIT_MOVE_STATE"
+                              move_row="{move_row}"
+                              move_col="{move_col}"
+                              target_height_mm="{target_height_mm}"
+                              target_yaw="{target_yaw}"
+                              entry_move="{move_entry_move}"
+                              message="{last_error}"/>
+          </Sequence>
+
+          <Sequence name="fetch">
+            <Fetch name="MEILIN_FETCH"
+                   kfs_row="{kfs_row}"
+                   kfs_col="{kfs_col}"
+                   height_diff="{height_diff}"
+                   target_yaw="{target_yaw}"
+                   message="{last_error}"/>
+          </Sequence>
 
           <Sequence name="PLAN_DONE">
             <SetDebugStatus execution_state="MISSION_SUCCESS" active_action="" last_error=""/>

@@ -43,6 +43,7 @@ meilin_area:
   height_tolerance: 1.0
   pose_timeout_sec: 1.0
   cell_center_tolerance: 0.15
+  motion_mode: "single_axis"
   default_align_timeout: 30.0
   default_suspension_timeout: 10.0
   default_grasp_timeout: 30.0

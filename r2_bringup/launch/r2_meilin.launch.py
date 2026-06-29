@@ -5,7 +5,7 @@ r2_meilin.launch.py — 真机梅林区单独启动
 仅启动梅林区调试所需的节点:
   1. ares_usb (USB 桥接，下位机通信)
   2. multi_serial_sensor (TOF 距离传感器)
-  3. Action Server: 底盘微调 / 主动悬挂 / 机械臂 / 矛头机构
+  3. Action Server: 底盘微调 / step_motion / 机械臂 / 矛头机构
   4. r2_bt (BT 决策引擎，加载 meilin_stage.xml)
 
 与 r2_autonomy.launch.py 的区别:
@@ -33,6 +33,11 @@ def generate_launch_description():
         'tree_file',
         default_value='meilin_stage.xml',
         description='行为树 XML 文件名 (位于 r2_bt/trees/ 目录下)')
+
+    param_config_arg = DeclareLaunchArgument(
+        'param_config',
+        default_value='',
+        description='可选: r2_bt/config 下的参数 YAML。留空时使用本 launch 的梅林参数。')
 
     groot2_port_arg = DeclareLaunchArgument(
         'groot2_port',
@@ -80,8 +85,14 @@ def generate_launch_description():
         default_value='0.4',
         description='抓取时车身距格子边线的距离 (m)')
 
+    motion_mode_arg = DeclareLaunchArgument(
+        'meilin_motion_mode',
+        default_value='single_axis',
+        description='梅林区运动模式: single_axis 或 omni')
+
     return LaunchDescription([
         tree_file_arg,
+        param_config_arg,
         groot2_port_arg,
         tick_frequency_arg,
         segment_topic_arg,
@@ -91,6 +102,7 @@ def generate_launch_description():
         grid_size_arg,
         grid_origin_arg,
         grasp_distance_arg,
+        motion_mode_arg,
 
         # ---- 底层: USB 桥接 (下位机通信) ----
         Node(
@@ -120,15 +132,19 @@ def generate_launch_description():
                     'config',
                     'param.yaml',
                 ]),
+                {'relocation_topic': LaunchConfiguration('meilin_pose_topic')},
             ],
         ),
 
-        # ---- Action Server: 主动悬挂 ----
+        # ---- Action Server: 上下台阶 + 阶段速度耦合 ----
         Node(
             package='r2_hardware',
-            executable='suspension_action_server',
-            name='suspension_action_server',
+            executable='step_motion_action_server',
+            name='step_motion_action_server',
             output='screen',
+            parameters=[{
+                'step_motion.relocation_topic': LaunchConfiguration('meilin_pose_topic'),
+            }],
         ),
 
         # ---- ARES R2 工具控制 (arm_grasp / spear 等 USB 通信) ----
@@ -136,6 +152,14 @@ def generate_launch_description():
             package='ares_tool_control',
             executable='tool_node',
             name='ares_tool_node',
+            output='screen',
+        ),
+
+        # ---- Web/Planner 暂存区: /mf_action_seq -> /get_action_seq ----
+        Node(
+            package='mf_action_planner',
+            executable='mf_buffer_node',
+            name='mf_buffer_node',
             output='screen',
         ),
 
@@ -147,6 +171,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'tree_file': LaunchConfiguration('tree_file'),
+                'param_config': LaunchConfiguration('param_config'),
                 'groot2_port': LaunchConfiguration('groot2_port'),
                 'tick_frequency': LaunchConfiguration('tick_frequency'),
                 'segment_topic': LaunchConfiguration('segment_topic'),
@@ -155,10 +180,11 @@ def generate_launch_description():
                 'meilin_grid_size': LaunchConfiguration('grid_size'),
                 'meilin_grid_origin': LaunchConfiguration('grid_origin'),
                 'meilin_grasp_distance': LaunchConfiguration('grasp_distance'),
+                'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
                 'meilin_side': PythonExpression(["'red' if '", LaunchConfiguration('is_red_zone'), "' == 'true' else 'blue'"]),
             }],
         ),
 
-        # ---- 规划: meilin_translator 已废弃，bt_engine_node 直接订阅 /mf_action_seq ----
+        # ---- 规划: meilin_translator 已废弃，BT 通过 mf_buffer_node 拉取 /mf_action_seq ----
 
     ])

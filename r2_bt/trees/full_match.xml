@@ -7,6 +7,8 @@
   架构:
     准备区 & 竞技区: 固定流程，直接读取命名 blackboard 变量，不再 PopNextSegment
     梅林区:          ForEachSegment → PopNextMeilinSegment → SwitchSegmentType，遇 PLAN_DONE 退出
+                     Move 显式执行 PlanMove → StepMotionControl → MoveToPose 到目标格中心 → CommitMove
+                     Fetch 作为独立动作节点，内部处理抓取前平移与 tool/arm 抓取
 
   启动示例:
     ros2 launch r2_bt bt_engine.launch.py param_config:=config/param_red.yaml
@@ -82,7 +84,18 @@
     </SequenceWithMemory>
   </BehaviorTree>
 
-  <!-- ====== 梅林区：直接消费 /mf_action_seq 解析出的 move/fetch 队列 ====== -->
+  <!--
+    ====== 梅林区：直接消费 /mf_action_seq 解析出的 move/fetch 队列 ======
+
+    Move:
+      - MeilinPlanMove 计算入口、目标中心、step goal
+      - StepMotionControl 仅在高度变化时调用 /step_motion_control
+      - MoveToPose 到目标格中心
+      - MeilinCommitMove 更新当前格/高度/yaw
+
+    Fetch:
+      - Fetch 独立执行，内部处理抓取前平移、必要 direct height、tool arm_grasp
+  -->
   <BehaviorTree ID="MeilinArea">
     <ForEachSegment stop_type="PLAN_DONE">
       <Sequence>
@@ -97,19 +110,65 @@
                               target_yaw="{target_yaw}"/>
         <SwitchSegmentType segment_type="{segment_type}">
 
-          <Move name="move"
-                move_row="{move_row}"
-                move_col="{move_col}"
-                target_height_mm="{target_height_mm}"
-                target_yaw="{target_yaw}"
-                message="{last_error}"/>
+          <Sequence name="move">
+            <MeilinPlanMove name="MEILIN_01_PLAN_MOVE"
+                            move_row="{move_row}"
+                            move_col="{move_col}"
+                            target_height_mm="{target_height_mm}"
+                            target_yaw="{target_yaw}"
+                            target_x="{move_target_x}"
+                            target_y="{move_target_y}"
+                            move_target_yaw="{move_target_yaw}"
+                            align_timeout_sec="{move_align_timeout_sec}"
+                            entry_move="{move_entry_move}"
+                            step_needed="{move_step_needed}"
+                            center_motion_needed="{move_center_motion_needed}"
+                            step_mode="{move_step_mode}"
+                            step_direction="{move_step_direction}"
+                            step_height="{move_step_height}"
+                            step_correction_x="{move_step_correction_x}"
+                            step_correction_y="{move_step_correction_y}"
+                            step_correction_yaw_deg="{move_step_correction_yaw_deg}"
+                            step_timeout_sec="{move_step_timeout_sec}"
+                            message="{last_error}"/>
 
-          <Fetch name="fetch"
-                 kfs_row="{kfs_row}"
-                 kfs_col="{kfs_col}"
-                 height_diff="{height_diff}"
-                 target_yaw="{target_yaw}"
-                 message="{last_error}"/>
+            <StepMotionControl name="MEILIN_02_STEP_IF_HEIGHT_CHANGED"
+                               enabled="{move_step_needed}"
+                               mode="{move_step_mode}"
+                               direction="{move_step_direction}"
+                               height="{move_step_height}"
+                               correction_x="{move_step_correction_x}"
+                               correction_y="{move_step_correction_y}"
+                               correction_yaw_deg="{move_step_correction_yaw_deg}"
+                               timeout_sec="{move_step_timeout_sec}"
+                               message="{last_error}"/>
+
+            <MoveToPose name="MEILIN_03_MOVE_TO_TARGET_CENTER"
+                        enabled="{move_center_motion_needed}"
+                        target_x="{move_target_x}"
+                        target_y="{move_target_y}"
+                        target_yaw="{move_target_yaw}"
+                        pid_profile="0"
+                        timeout_sec="{move_align_timeout_sec}"
+                        error_msg="{last_error}"/>
+
+            <MeilinCommitMove name="MEILIN_04_COMMIT_MOVE_STATE"
+                              move_row="{move_row}"
+                              move_col="{move_col}"
+                              target_height_mm="{target_height_mm}"
+                              target_yaw="{target_yaw}"
+                              entry_move="{move_entry_move}"
+                              message="{last_error}"/>
+          </Sequence>
+
+          <Sequence name="fetch">
+            <Fetch name="MEILIN_FETCH"
+                   kfs_row="{kfs_row}"
+                   kfs_col="{kfs_col}"
+                   height_diff="{height_diff}"
+                   target_yaw="{target_yaw}"
+                   message="{last_error}"/>
+          </Sequence>
 
           <Sequence name="PLAN_DONE">
             <SetDebugStatus execution_state="MEILIN_SUCCESS" active_action="" last_error=""/>

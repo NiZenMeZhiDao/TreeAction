@@ -29,6 +29,7 @@ struct MeilinConfig
   double suspension_normal_height = 30.0;  // 正常行驶悬挂高度 (mm)，即 H_INIT
   double pose_timeout_sec = 1.0;
   double cell_center_tolerance = 0.15;
+  std::string motion_mode = "single_axis";
   int rows = 6;
   int cols = 3;
 };
@@ -65,6 +66,13 @@ inline double meilin_height_at(int row, int col, const std::string& side)
 inline double meilin_normalize_angle(double angle)
 {
   return std::atan2(std::sin(angle), std::cos(angle));
+}
+
+/// 将 yaw 吸附到梅林网格四方向（0 / ±90 / 180 deg）
+inline double meilin_snap_cardinal_yaw(double yaw)
+{
+  constexpr double kQuarterTurn = M_PI / 2.0;
+  return meilin_normalize_angle(std::round(yaw / kQuarterTurn) * kQuarterTurn);
 }
 
 /// 角度比较

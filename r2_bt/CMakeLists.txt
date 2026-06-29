@@ -30,6 +30,7 @@ add_library(r2_bt_nodes SHARED
   src/nodes/is_string_non_empty.cpp
   src/nodes/meilin_fetch.cpp
   src/nodes/meilin_move.cpp
+  src/nodes/meilin_move_plan.cpp
   src/nodes/move_through_final_waypoints.cpp
   src/nodes/move_to_pose.cpp
   src/nodes/pop_next_meilin_segment.cpp
@@ -44,6 +45,7 @@ add_library(r2_bt_nodes SHARED
   src/nodes/pick_action.cpp
   src/nodes/select_final_target.cpp
   src/nodes/suspension_control.cpp
+  src/nodes/step_motion_control.cpp
   src/nodes/wait_arm_idle.cpp
   src/nodes/wait_for_int_signal.cpp
   src/nodes/wait_for_r1_signal.cpp

@@ -80,6 +80,11 @@ def generate_launch_description():
         default_value='0.4',
         description='抓取时车身距格子边线的距离 (m)')
 
+    motion_mode_arg = DeclareLaunchArgument(
+        'meilin_motion_mode',
+        default_value='single_axis',
+        description='梅林区运动模式: single_axis 或 omni')
+
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
@@ -92,6 +97,7 @@ def generate_launch_description():
         grid_size_arg,
         grid_origin_arg,
         grasp_distance_arg,
+        motion_mode_arg,
 
         # ---- BT 决策引擎 ----
         Node(
@@ -110,6 +116,7 @@ def generate_launch_description():
                 'meilin_grid_size': LaunchConfiguration('grid_size'),
                 'meilin_grid_origin': LaunchConfiguration('grid_origin'),
                 'meilin_grasp_distance': LaunchConfiguration('grasp_distance'),
+                'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
                 'meilin_side': PythonExpression(["'red' if '", LaunchConfiguration('is_red_zone'), "' == 'true' else 'blue'"]),
             }],
         ),

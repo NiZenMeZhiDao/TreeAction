@@ -9,6 +9,7 @@
 #include <pick_action_interfaces/action/pick_sequence.hpp>
 #include <r2_interfaces/action/arm_action.hpp>
 #include <r2_interfaces/action/spear_action.hpp>
+#include <r2_interfaces/action/step_motion_control.hpp>
 #include <r2_interfaces/action/suspension_control.hpp>
 #include <r2_interfaces/srv/get_action_seq.hpp>
 #include <r2_interfaces/srv/start_autonomy.hpp>
@@ -35,6 +36,7 @@
 #include "r2_bt/nodes/actions/go_to_pose.hpp"
 #include "r2_bt/nodes/actions/meilin_fetch.hpp"
 #include "r2_bt/nodes/actions/meilin_move.hpp"
+#include "r2_bt/nodes/actions/meilin_move_plan.hpp"
 #include "r2_bt/nodes/actions/move_through_final_waypoints.hpp"
 #include "r2_bt/nodes/actions/move_to_pose.hpp"
 #include "r2_bt/nodes/actions/place_object_placeholder.hpp"
@@ -43,6 +45,7 @@
 #include "r2_bt/nodes/actions/pop_next_segment.hpp"
 #include "r2_bt/nodes/actions/publish_chassis_height.hpp"
 #include "r2_bt/nodes/actions/select_final_target.hpp"
+#include "r2_bt/nodes/actions/step_motion_control.hpp"
 #include "r2_bt/nodes/actions/suspension_control.hpp"
 #include "r2_bt/nodes/actions/wait_arm_idle.hpp"
 #include "r2_bt/nodes/actions/wait_for_int_signal.hpp"
@@ -94,6 +97,7 @@ public:
     declare_parameter("meilin_pose_topic", "/transformed/pose");
     declare_parameter("meilin_pose_timeout_sec", 1.0);
     declare_parameter("meilin_cell_center_tolerance", 0.15);
+    declare_parameter("meilin_motion_mode", "single_axis");
 
     groot2_port_ = static_cast<unsigned>(get_parameter("groot2_port").as_int());
     double tick_freq = get_parameter("tick_frequency").as_double();
@@ -117,10 +121,13 @@ public:
     factory_.registerNodeType<r2_bt::GoToPose>("GoToPose");
     factory_.registerNodeType<r2_bt::MeilinMove>("Move");
     factory_.registerNodeType<r2_bt::MeilinFetch>("Fetch");
+    factory_.registerNodeType<r2_bt::MeilinPlanMove>("MeilinPlanMove");
+    factory_.registerNodeType<r2_bt::MeilinCommitMove>("MeilinCommitMove");
     factory_.registerNodeType<r2_bt::MoveThroughFinalWaypoints>("MoveThroughFinalWaypoints");
     factory_.registerNodeType<r2_bt::PopNextSegment>("PopNextSegment");
     factory_.registerNodeType<r2_bt::PopNextMeilinSegment>("PopNextMeilinSegment");
     factory_.registerNodeType<r2_bt::SuspensionControl>("SuspensionControl");
+    factory_.registerNodeType<r2_bt::StepMotionControl>("StepMotionControl");
     factory_.registerNodeType<r2_bt::AresToolAction>("AresToolAction");
     factory_.registerNodeType<r2_bt::PickAction>("PickAction");
     factory_.registerNodeType<r2_bt::PlaceObjectPlaceholder>("PlaceObjectPlaceholder");
@@ -168,6 +175,7 @@ public:
     meilin_cfg->suspension_normal_height = meilin_suspension_normal_height_;
     meilin_cfg->pose_timeout_sec = meilin_pose_timeout_sec_;
     meilin_cfg->cell_center_tolerance = meilin_cell_center_tolerance_;
+    meilin_cfg->motion_mode = meilin_motion_mode_;
     meilin_cfg->rows = meilin_rows_;
     meilin_cfg->cols = meilin_cols_;
     blackboard_->set("meilin_config", meilin_cfg);
@@ -194,6 +202,7 @@ public:
     blackboard_->set("meilin_pose_yaw", 0.0);
     blackboard_->set("meilin_pose_last_update_sec", 0.0);
     blackboard_->set("meilin_pose_frame_id", std::string{});
+    blackboard_->set("meilin_entry_move_pending", false);
 
     // 加载全区域 YAML 参数；match_config 仅作为旧 JSON 覆盖入口保留。
     load_param_config();
@@ -374,16 +383,17 @@ private:
     blackboard_->set("tool_action_client_name", tool_service_name);
 
     buffer_client_ = create_client<r2_interfaces::srv::GetActionSeq>(buffer_service_);
-    suspension_client_ = rclcpp_action::create_client<SuspensionAction>(
+    step_motion_client_ = rclcpp_action::create_client<StepMotionAction>(
         get_node_base_interface(),
         get_node_graph_interface(),
         get_node_logging_interface(),
         get_node_waitables_interface(),
-        "suspension_control");
+        "step_motion_control");
+    blackboard_->set("step_motion_client", step_motion_client_);
 
     RCLCPP_INFO(get_logger(),
                 "Prewarmed shared clients: move_to_pose=/move_to_pose, "
-                "pick_action=%s, tool_service=%s, suspension=/suspension_control, "
+                "pick_action=%s, tool_service=%s, step_motion=/step_motion_control, "
                 "buffer_service=%s",
                 pick_action_name.c_str(), tool_service_name.c_str(),
                 buffer_service_.c_str());
@@ -413,8 +423,8 @@ private:
 
     if (needs_meilin)
     {
-      append_if_missing(suspension_client_ && suspension_client_->action_server_is_ready(),
-                        "/suspension_control action", missing);
+      append_if_missing(step_motion_client_ && step_motion_client_->action_server_is_ready(),
+                        "/step_motion_control action", missing);
       append_if_missing(tool_client_ && tool_client_->service_is_ready(),
                         "/ares_tool_node/tool_action service", missing);
       append_if_missing(buffer_client_ && buffer_client_->service_is_ready(),
@@ -477,6 +487,7 @@ private:
     blackboard_->set("active_action", std::string{});
     blackboard_->set("retry_count", 0);
     blackboard_->set("last_error", std::string{});
+    blackboard_->set("meilin_entry_move_pending", false);
     blackboard_->set("execution_state",
                      std::string{"AUTONOMY_RUNNING:"} + region);
 
@@ -582,6 +593,14 @@ private:
     meilin_pose_timeout_sec_ = get_parameter("meilin_pose_timeout_sec").as_double();
     meilin_cell_center_tolerance_ =
         get_parameter("meilin_cell_center_tolerance").as_double();
+    meilin_motion_mode_ = get_parameter("meilin_motion_mode").as_string();
+    if (meilin_motion_mode_ != "omni" && meilin_motion_mode_ != "single_axis")
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Invalid meilin_motion_mode=%s; falling back to single_axis",
+                  meilin_motion_mode_.c_str());
+      meilin_motion_mode_ = "single_axis";
+    }
 
     const auto origin = get_parameter("meilin_grid_origin").as_double_array();
     if (origin.size() >= 2)
@@ -773,6 +792,15 @@ private:
     meilin_suspension_normal_height_ =
         yaml_value<double>(meilin, "suspension_normal_height",
                            meilin_suspension_normal_height_);
+    meilin_motion_mode_ =
+        yaml_value<std::string>(meilin, "motion_mode", meilin_motion_mode_);
+    if (meilin_motion_mode_ != "omni" && meilin_motion_mode_ != "single_axis")
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Ignoring invalid meilin_area.motion_mode: %s",
+                  meilin_motion_mode_.c_str());
+      meilin_motion_mode_ = "single_axis";
+    }
 
     const auto origin = yaml_double_vector(meilin["grid_origin"]);
     if (origin.size() >= 2)
@@ -791,10 +819,11 @@ private:
     sync_meilin_blackboard();
     RCLCPP_INFO(get_logger(),
                 "Meilin params loaded from param_config: side=%s, grid=%.3f, "
-                "origin=(%.3f, %.3f), initial=(%d, %d)",
+                "origin=(%.3f, %.3f), initial=(%d, %d), motion_mode=%s",
                 meilin_side_.c_str(), meilin_grid_size_,
                 meilin_origin_x_, meilin_origin_y_,
-                meilin_initial_row_, meilin_initial_col_);
+                meilin_initial_row_, meilin_initial_col_,
+                meilin_motion_mode_.c_str());
   }
 
   bool load_final_area_config(const YAML::Node& final_cfg)
@@ -1011,6 +1040,7 @@ private:
       cfg_ptr->suspension_normal_height = meilin_suspension_normal_height_;
       cfg_ptr->pose_timeout_sec = meilin_pose_timeout_sec_;
       cfg_ptr->cell_center_tolerance = meilin_cell_center_tolerance_;
+      cfg_ptr->motion_mode = meilin_motion_mode_;
       cfg_ptr->rows = meilin_rows_;
       cfg_ptr->cols = meilin_cols_;
     }
@@ -1021,6 +1051,7 @@ private:
     blackboard_->set("meilin_current_yaw", meilin_initial_yaw_);
     blackboard_->set("meilin_pose_is_cell_center", true);
     blackboard_->set("meilin_suspension_offset", 0.0);
+    blackboard_->set("meilin_entry_move_pending", false);
   }
 
   void load_prepare_point(const std::string& prefix, const YAML::Node& node)
@@ -1324,6 +1355,7 @@ private:
   r2_bt::Segment make_move_segment(size_t idx, int row, int col,
                                    double requested_height, double yaw,
                                    const MeilinSimState& state,
+                                   bool entry_move,
                                    std::string& error)
   {
     // 1. 校验 grid
@@ -1347,9 +1379,10 @@ private:
       return {};
     }
 
-    // 3. 如果相邻且有高度差，校验方向（无后退）
+    // 3. 如果相邻且有高度差，校验方向（无后退）。
+    // 新 web 路径的第一个 move 是梅林入口点，不从当前 blackboard 初始格爬过去。
     const double h_diff = map_height - state.height;
-    if (std::abs(h_diff) > meilin_height_tolerance_)
+    if (!entry_move && std::abs(h_diff) > meilin_height_tolerance_)
     {
       if (!r2_bt::meilin_adjacent(state.row, state.col, row, col))
       {
@@ -1372,7 +1405,9 @@ private:
     r2_bt::Segment seg;
     seg.index = static_cast<int>(idx);
     seg.segment_type = "move";
-    seg.debug_name = "move#" + std::to_string(idx);
+    seg.debug_name = entry_move
+        ? "entry_move#" + std::to_string(idx)
+        : "move#" + std::to_string(idx);
     seg.move_row = row;
     seg.move_col = col;
     seg.target_height_mm = map_height;
@@ -1512,12 +1547,18 @@ private:
         error = "arg3/yaw contains NaN/Inf";
         return {};
       }
+      if (i == 0 && action_type != 0)
+      {
+        error = "first Meilin action must be move entry point";
+        return {};
+      }
 
       r2_bt::Segment seg;
       if (action_type == 0)
       {
         // move
-        seg = make_move_segment(i, row, col, arg3, yaw, sim, error);
+        const bool entry_move = i == 0;
+        seg = make_move_segment(i, row, col, arg3, yaw, sim, entry_move, error);
         if (!error.empty()) return {};
         sim.row = row;
         sim.col = col;
@@ -1600,6 +1641,7 @@ private:
     blackboard_->set("active_action", std::string{});
     blackboard_->set("retry_count", 0);
     blackboard_->set("last_error", std::string{});
+    blackboard_->set("meilin_entry_move_pending", true);
     blackboard_->set("execution_state", std::string{"MF_PLAN_READY"});
 
     RCLCPP_INFO(get_logger(), "Meilin plan accepted: plan_id=%s, actions=%zu",
@@ -1948,7 +1990,7 @@ private:
 
   using MoveToPoseAction = action_of_motion_interfaces::action::MoveToPose;
   using PickSequenceAction = pick_action_interfaces::action::PickSequence;
-  using SuspensionAction = r2_interfaces::action::SuspensionControl;
+  using StepMotionAction = r2_interfaces::action::StepMotionControl;
   using ToolActionSrv = r2_interfaces::srv::ToolAction;
 
   BT::BehaviorTreeFactory factory_;
@@ -1967,7 +2009,7 @@ private:
   rclcpp::Client<ToolActionSrv>::SharedPtr tool_client_;
   rclcpp_action::Client<MoveToPoseAction>::SharedPtr move_to_pose_client_;
   rclcpp_action::Client<PickSequenceAction>::SharedPtr pick_action_client_;
-  rclcpp_action::Client<SuspensionAction>::SharedPtr suspension_client_;
+  rclcpp_action::Client<StepMotionAction>::SharedPtr step_motion_client_;
 
   unsigned groot2_port_ = 1667;
   std::string segment_topic_;
@@ -2004,6 +2046,7 @@ private:
   double meilin_suspension_normal_height_ = 30.0;  // 正常行驶悬挂高度 (mm)，即 H_INIT
   double meilin_pose_timeout_sec_ = 1.0;
   double meilin_cell_center_tolerance_ = 0.15;
+  std::string meilin_motion_mode_ = "single_axis";
   uint64_t meilin_plan_counter_ = 0;
 };
 

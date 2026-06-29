@@ -18,6 +18,7 @@ MoveToPose::MoveToPose(const std::string& name, const BT::NodeConfig& config)
 BT::PortsList MoveToPose::providedPorts()
 {
   return {
+    BT::InputPort<bool>("enabled", true, "If false, skip the action and return SUCCESS"),
     BT::InputPort<double>("target_x", "Target X in map frame (m)"),
     BT::InputPort<double>("target_y", "Target Y in map frame (m)"),
     BT::InputPort<double>("target_yaw", "Target yaw angle in map frame (rad)"),
@@ -31,6 +32,14 @@ BT::PortsList MoveToPose::providedPorts()
 
 BT::NodeStatus MoveToPose::onStart()
 {
+  const bool enabled = getInput<bool>("enabled").value_or(true);
+  if (!enabled)
+  {
+    error_msg_.clear();
+    setOutput("error_msg", std::string{});
+    return BT::NodeStatus::SUCCESS;
+  }
+
   goal_done_ = false;
   goal_response_received_ = false;
   goal_accepted_ = false;

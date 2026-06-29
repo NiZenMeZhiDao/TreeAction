@@ -68,6 +68,11 @@ def generate_launch_description():
         default_value='/transformed/pose',
         description='梅林 move 使用的 map 系 base_link 定位 PoseStamped Topic')
 
+    meilin_motion_mode_arg = DeclareLaunchArgument(
+        'meilin_motion_mode',
+        default_value='single_axis',
+        description='梅林区运动模式: single_axis 或 omni')
+
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
@@ -77,6 +82,7 @@ def generate_launch_description():
         segment_topic_arg,
         mf_action_topic_arg,
         meilin_pose_topic_arg,
+        meilin_motion_mode_arg,
         Node(
             package='r2_bt',
             executable='r2_bt_engine',
@@ -91,6 +97,7 @@ def generate_launch_description():
                 'segment_topic': LaunchConfiguration('segment_topic'),
                 'mf_action_topic': LaunchConfiguration('mf_action_topic'),
                 'meilin_pose_topic': LaunchConfiguration('meilin_pose_topic'),
+                'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
             }],
         ),
     ])

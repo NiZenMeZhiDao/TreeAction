@@ -3,7 +3,7 @@
 r2_meilin_sim.launch.py — 梅林赛段仿真启动
 
 启动梅林区完整的仿真环境:
-  1. r2_hardware: 里程计模拟器 + 所有 Action Server (底盘/悬挂/机械臂/矛头)
+  1. r2_hardware: 里程计模拟器 + 所有 Action Server (底盘/step_motion/机械臂/矛头)
   2. r2_bt: BT 决策引擎（加载 meilin_stage.xml）
   3. mf_action_planner 或 Web 直接发布 /mf_action_seq
 
@@ -89,6 +89,11 @@ def generate_launch_description():
         default_value='0.4',
         description='抓取时车身距格子边线的距离 (m)')
 
+    motion_mode_arg = DeclareLaunchArgument(
+        'meilin_motion_mode',
+        default_value='single_axis',
+        description='梅林区运动模式: single_axis 或 omni')
+
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
@@ -101,6 +106,7 @@ def generate_launch_description():
         grid_size_arg,
         grid_origin_arg,
         grasp_distance_arg,
+        motion_mode_arg,
 
         # ============================================================
         #  仿真硬件层: r2_hardware
@@ -126,15 +132,19 @@ def generate_launch_description():
                     'config',
                     'param.yaml',
                 ]),
+                {'relocation_topic': LaunchConfiguration('meilin_pose_topic')},
             ],
         ),
 
-        # ---- Action Server: 主动悬挂 ----
+        # ---- Action Server: 上下台阶 + 阶段速度耦合 ----
         Node(
             package='r2_hardware',
-            executable='suspension_action_server',
-            name='suspension_action_server',
+            executable='step_motion_action_server',
+            name='step_motion_action_server',
             output='screen',
+            parameters=[{
+                'step_motion.relocation_topic': LaunchConfiguration('meilin_pose_topic'),
+            }],
         ),
 
         # ---- ARES R2 工具控制 (arm_grasp / spear 等 USB 通信) ----
@@ -166,6 +176,7 @@ def generate_launch_description():
                 'meilin_grid_size': LaunchConfiguration('grid_size'),
                 'meilin_grid_origin': LaunchConfiguration('grid_origin'),
                 'meilin_grasp_distance': LaunchConfiguration('grasp_distance'),
+                'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
                 'meilin_side': PythonExpression(["'red' if '", LaunchConfiguration('is_red_zone'), "' == 'true' else 'blue'"]),
             }],
         ),

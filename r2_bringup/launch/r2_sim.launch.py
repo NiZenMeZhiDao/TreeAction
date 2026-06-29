@@ -65,6 +65,11 @@ def generate_launch_description():
         default_value='/transformed/pose',
         description='梅林 move 使用的 map 系 base_link 定位 PoseStamped Topic')
 
+    meilin_motion_mode_arg = DeclareLaunchArgument(
+        'meilin_motion_mode',
+        default_value='single_axis',
+        description='梅林区运动模式: single_axis 或 omni')
+
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
@@ -74,6 +79,7 @@ def generate_launch_description():
         segment_topic_arg,
         mf_action_topic_arg,
         meilin_pose_topic_arg,
+        meilin_motion_mode_arg,
 
         # ---- 仿真: 里程计模拟器 ----
         Node(
@@ -95,15 +101,19 @@ def generate_launch_description():
                     'config',
                     'param.yaml',
                 ]),
+                {'relocation_topic': LaunchConfiguration('meilin_pose_topic')},
             ],
         ),
 
-        # ---- Action Server: 主动悬挂 ----
+        # ---- Action Server: 上下台阶 + 阶段速度耦合 ----
         Node(
             package='r2_hardware',
-            executable='suspension_action_server',
-            name='suspension_action_server',
+            executable='step_motion_action_server',
+            name='step_motion_action_server',
             output='screen',
+            parameters=[{
+                'step_motion.relocation_topic': LaunchConfiguration('meilin_pose_topic'),
+            }],
         ),
 
         # ---- ARES R2 工具控制 (arm_grasp / spear 等 USB 通信) ----
@@ -129,6 +139,7 @@ def generate_launch_description():
                 'segment_topic': LaunchConfiguration('segment_topic'),
                 'mf_action_topic': LaunchConfiguration('mf_action_topic'),
                 'meilin_pose_topic': LaunchConfiguration('meilin_pose_topic'),
+                'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
             }],
         ),
 

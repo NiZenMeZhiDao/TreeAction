@@ -298,4 +298,154 @@
     </Sequence>
   </BehaviorTree>
 
+  <TreeNodesModel>
+    <Action ID="MoveToPose">
+      <input_port name="enabled"/>
+      <input_port name="target_x"/>
+      <input_port name="target_y"/>
+      <input_port name="target_yaw"/>
+      <input_port name="pid_profile"/>
+      <input_port name="timeout_sec"/>
+      <input_port name="frame_id"/>
+      <output_port name="error_msg"/>
+    </Action>
+
+    <Action ID="PickAction">
+      <input_port name="expected_count"/>
+      <input_port name="timeout_sec"/>
+      <input_port name="server_name"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="AresToolAction">
+      <input_port name="action"/>
+      <input_port name="service_name"/>
+      <input_port name="timeout_sec"/>
+      <input_port name="arg0"/>
+      <input_port name="arg1"/>
+      <input_port name="arg2"/>
+      <input_port name="arg3"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="PopNextMeilinSegment">
+      <input_port name="queue"/>
+      <output_port name="segment_type"/>
+      <output_port name="move_row"/>
+      <output_port name="move_col"/>
+      <output_port name="target_height_mm"/>
+      <output_port name="kfs_row"/>
+      <output_port name="kfs_col"/>
+      <output_port name="height_diff"/>
+      <output_port name="target_yaw"/>
+    </Action>
+
+    <Action ID="MeilinPlanMove">
+      <input_port name="move_row"/>
+      <input_port name="move_col"/>
+      <input_port name="target_height_mm"/>
+      <input_port name="target_yaw"/>
+      <output_port name="target_x"/>
+      <output_port name="target_y"/>
+      <output_port name="move_target_yaw"/>
+      <output_port name="align_timeout_sec"/>
+      <output_port name="entry_move"/>
+      <output_port name="step_needed"/>
+      <output_port name="center_motion_needed"/>
+      <output_port name="step_mode"/>
+      <output_port name="step_direction"/>
+      <output_port name="step_height"/>
+      <output_port name="step_correction_x"/>
+      <output_port name="step_correction_y"/>
+      <output_port name="step_correction_yaw_deg"/>
+      <output_port name="step_timeout_sec"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="StepMotionControl">
+      <input_port name="enabled"/>
+      <input_port name="mode"/>
+      <input_port name="direction"/>
+      <input_port name="height"/>
+      <input_port name="correction_x"/>
+      <input_port name="correction_y"/>
+      <input_port name="correction_yaw_deg"/>
+      <input_port name="timeout_sec"/>
+      <input_port name="server_name"/>
+      <output_port name="message"/>
+      <output_port name="final_state"/>
+    </Action>
+
+    <Action ID="MeilinCommitMove">
+      <input_port name="move_row"/>
+      <input_port name="move_col"/>
+      <input_port name="target_height_mm"/>
+      <input_port name="target_yaw"/>
+      <input_port name="entry_move"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="Fetch">
+      <input_port name="kfs_row"/>
+      <input_port name="kfs_col"/>
+      <input_port name="height_diff"/>
+      <input_port name="target_yaw"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="MoveThroughFinalWaypoints">
+      <input_port name="height_topic"/>
+      <input_port name="height_wp1"/>
+      <input_port name="height_wp3"/>
+      <input_port name="settle_sec"/>
+      <input_port name="retry_attempts"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="WaitForIntSignal">
+      <input_port name="signal_topic"/>
+      <input_port name="expected_value"/>
+      <input_port name="expected_values"/>
+      <input_port name="timeout_sec"/>
+      <output_port name="received_value"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="SelectFinalTarget">
+      <input_port name="command"/>
+      <output_port name="layer"/>
+      <output_port name="column"/>
+      <output_port name="flow"/>
+      <output_port name="target_x"/>
+      <output_port name="target_y"/>
+      <output_port name="target_yaw"/>
+      <output_port name="pid_profile"/>
+      <output_port name="timeout_sec"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="WaitSeconds">
+      <input_port name="seconds"/>
+    </Action>
+
+    <Action ID="SetDebugStatus">
+      <input_port name="execution_state"/>
+      <input_port name="active_action"/>
+      <input_port name="last_error"/>
+      <input_port name="retry_count"/>
+    </Action>
+
+    <Decorator ID="ForEachSegment">
+      <input_port name="stop_type"/>
+    </Decorator>
+
+    <Decorator ID="RetrySegment">
+      <input_port name="num_attempts"/>
+    </Decorator>
+
+    <Control ID="SwitchSegmentType">
+      <input_port name="segment_type"/>
+    </Control>
+  </TreeNodesModel>
+
 </root>

@@ -1954,10 +1954,19 @@ private:
         auto status = current_tree_->tickOnce();
         if (status == BT::NodeStatus::FAILURE)
         {
+          std::string last_error;
+          std::string active_action;
+          std::string segment_debug_name;
+          (void)blackboard_->get("last_error", last_error);
+          (void)blackboard_->get("active_action", active_action);
+          (void)blackboard_->get("segment_debug_name", segment_debug_name);
           blackboard_->set("execution_state", std::string{"MISSION_FAILED"});
           autonomy_started_ = false;
           RCLCPP_ERROR(get_logger(),
-                       "BT returned FAILURE; autonomy paused until /bt_engine/start_autonomy");
+                       "BT returned FAILURE; segment=%s active_action=%s last_error=%s; "
+                       "autonomy paused until /bt_engine/start_autonomy",
+                       segment_debug_name.c_str(), active_action.c_str(),
+                       last_error.c_str());
         }
         else if (status == BT::NodeStatus::SUCCESS)
         {

@@ -139,7 +139,8 @@ BT::NodeStatus MeilinPlanMove::tick()
   double step_height = 0.0;
   double correction_x = 0.0;
   double correction_y = 0.0;
-  double correction_yaw_deg = meilin_snap_cardinal_yaw(current_yaw) * 180.0 / M_PI;
+  const double reference_yaw = meilin_snap_cardinal_yaw(yaw);
+  double correction_yaw_deg = reference_yaw * 180.0 / M_PI;
 
   if (step_needed)
   {
@@ -154,9 +155,17 @@ BT::NodeStatus MeilinPlanMove::tick()
     double move_yaw = 0.0;
     std::string dir_name;
     if (!meilin_direction_yaw(from_row, from_col, to_row, to_col,
-                              move_yaw, step_direction, dir_name, current_yaw))
+                              move_yaw, step_direction, dir_name,
+                              reference_yaw))
     {
-      const std::string err = "Move step direction is invalid";
+      const std::string err =
+          "Move step direction is invalid: from=(" +
+          std::to_string(from_row) + "," + std::to_string(from_col) +
+          ") to=(" + std::to_string(to_row) + "," +
+          std::to_string(to_col) + ") target_yaw=" +
+          std::to_string(yaw) + " reference_yaw=" +
+          std::to_string(reference_yaw) + " pose_yaw=" +
+          std::to_string(current_yaw);
       setOutput("message", err);
       config().blackboard->set("last_error", err);
       return BT::NodeStatus::FAILURE;
@@ -205,10 +214,12 @@ BT::NodeStatus MeilinPlanMove::tick()
 
   RCLCPP_INFO(node_->get_logger(),
               "[MeilinPlanMove] from=(%d,%d h=%.0f) to=(%d,%d h=%.0f) "
-              "entry=%s step=%s center_motion=%s",
+              "entry=%s step=%s center_motion=%s target_yaw=%.3f "
+              "reference_yaw=%.3f pose_yaw=%.3f",
               from_row, from_col, current_height, to_row, to_col, target_height,
               entry_move ? "yes" : "no", step_needed ? "yes" : "no",
-              center_motion_needed ? "yes" : "no");
+              center_motion_needed ? "yes" : "no", yaw, reference_yaw,
+              current_yaw);
 
   return BT::NodeStatus::SUCCESS;
 }

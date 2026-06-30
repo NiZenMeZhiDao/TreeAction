@@ -413,10 +413,19 @@ BT::NodeStatus MeilinMove::onStart()
     double move_yaw = 0.0;
     std::string dir_name;
     int direction = 0;
+    const double reference_yaw = meilin_snap_cardinal_yaw(target_yaw_);
     if (!meilin_direction_yaw(from_row_, from_col_, move_row_, move_col_,
-                              move_yaw, direction, dir_name, current_yaw_))
+                              move_yaw, direction, dir_name,
+                              reference_yaw))
     {
-      const std::string err = "Move step direction is invalid";
+      const std::string err =
+          "Move step direction is invalid: from=(" +
+          std::to_string(from_row_) + "," + std::to_string(from_col_) +
+          ") to=(" + std::to_string(move_row_) + "," +
+          std::to_string(move_col_) + ") target_yaw=" +
+          std::to_string(target_yaw_) + " reference_yaw=" +
+          std::to_string(reference_yaw) + " pose_yaw=" +
+          std::to_string(current_yaw_);
       setOutput("message", err);
       config().blackboard->set("last_error", err);
       return BT::NodeStatus::FAILURE;
@@ -439,12 +448,15 @@ BT::NodeStatus MeilinMove::onStart()
     const auto [cx, cy] = meilin_grid_to_world(from_row_, from_col_, *cfg);
     step_correction_x_ = cx;
     step_correction_y_ = cy;
-    step_correction_yaw_deg_ = meilin_snap_cardinal_yaw(current_yaw_) * 180.0 / M_PI;
+    step_correction_yaw_deg_ = reference_yaw * 180.0 / M_PI;
 
     RCLCPP_INFO(node_->get_logger(),
-                "[Move] step: %s dir=%s height=%.0f correction(anchor+yaw)=(%.3f,%.3f,%.1fdeg)",
+                "[Move] step: %s dir=%s height=%.0f "
+                "target_yaw=%.3f reference_yaw=%.3f pose_yaw=%.3f "
+                "correction(anchor+yaw)=(%.3f,%.3f,%.1fdeg)",
                 step_mode_ == StepMotionAction::Goal::MODE_CLIMB_UP ? "UP" : "DOWN",
                 dir_name.c_str(), step_height_mm_,
+                target_yaw_, reference_yaw, current_yaw_,
                 step_correction_x_, step_correction_y_, step_correction_yaw_deg_);
   }
   else

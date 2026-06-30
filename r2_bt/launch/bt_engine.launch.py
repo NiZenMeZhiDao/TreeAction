@@ -20,6 +20,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -73,6 +74,31 @@ def generate_launch_description():
         default_value='single_axis',
         description='梅林区运动模式: single_axis 或 omni')
 
+    prepare_to_meilin_wait_arg = DeclareLaunchArgument(
+        'prepare_to_meilin_wait_sec',
+        default_value='1.0',
+        description='PrepareArea 成功后进入 MeilinArea 前的等待时间；0 表示关闭')
+
+    final_handoff_distance_arg = DeclareLaunchArgument(
+        'final_handoff_distance',
+        default_value='0.8',
+        description='FinalArea standby 前 N 段提前切换距离；0 表示关闭')
+
+    final_handoff_count_arg = DeclareLaunchArgument(
+        'final_handoff_count',
+        default_value='2',
+        description='FinalArea standby 从第 1 段开始启用提前切换的段数')
+
+    final_handoff_position_only_arg = DeclareLaunchArgument(
+        'final_handoff_position_only',
+        default_value='true',
+        description='FinalArea 提前切换是否只检查位置、不检查 yaw')
+
+    final_handoff_skip_brake_arg = DeclareLaunchArgument(
+        'final_handoff_skip_brake',
+        default_value='true',
+        description='FinalArea 提前切换成功时是否跳过刹车')
+
     return LaunchDescription([
         tree_file_arg,
         match_config_arg,
@@ -83,6 +109,11 @@ def generate_launch_description():
         mf_action_topic_arg,
         meilin_pose_topic_arg,
         meilin_motion_mode_arg,
+        prepare_to_meilin_wait_arg,
+        final_handoff_distance_arg,
+        final_handoff_count_arg,
+        final_handoff_position_only_arg,
+        final_handoff_skip_brake_arg,
         Node(
             package='r2_bt',
             executable='r2_bt_engine',
@@ -98,6 +129,16 @@ def generate_launch_description():
                 'mf_action_topic': LaunchConfiguration('mf_action_topic'),
                 'meilin_pose_topic': LaunchConfiguration('meilin_pose_topic'),
                 'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
+                'prepare_to_meilin_wait_sec': ParameterValue(
+                    LaunchConfiguration('prepare_to_meilin_wait_sec'), value_type=float),
+                'final_handoff_distance': ParameterValue(
+                    LaunchConfiguration('final_handoff_distance'), value_type=float),
+                'final_handoff_count': ParameterValue(
+                    LaunchConfiguration('final_handoff_count'), value_type=int),
+                'final_handoff_position_only': ParameterValue(
+                    LaunchConfiguration('final_handoff_position_only'), value_type=bool),
+                'final_handoff_skip_brake': ParameterValue(
+                    LaunchConfiguration('final_handoff_skip_brake'), value_type=bool),
             }],
         ),
     ])

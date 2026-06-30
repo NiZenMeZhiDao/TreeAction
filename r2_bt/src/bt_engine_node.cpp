@@ -79,6 +79,11 @@ public:
     declare_parameter("default_region", "full");
     declare_parameter("require_map_relocalization", false);
     declare_parameter("localization_timeout_sec", 1.0);
+    declare_parameter("prepare_to_meilin_wait_sec", 1.0);
+    declare_parameter("final_handoff_distance", 0.8);
+    declare_parameter("final_handoff_count", 2);
+    declare_parameter("final_handoff_position_only", true);
+    declare_parameter("final_handoff_skip_brake", true);
 
     // === 梅林区参数 ===
     declare_parameter("meilin_side", "blue");
@@ -159,6 +164,16 @@ public:
     blackboard_->set("retry_count", 0);
     blackboard_->set("last_error", std::string{});
     blackboard_->set("execution_state", std::string{"WAITING_PLAN"});
+    blackboard_->set("prepare_to_meilin_wait_sec",
+                     get_parameter("prepare_to_meilin_wait_sec").as_double());
+    blackboard_->set("final_handoff_distance",
+                     get_parameter("final_handoff_distance").as_double());
+    blackboard_->set("final_handoff_count",
+                     static_cast<int>(get_parameter("final_handoff_count").as_int()));
+    blackboard_->set("final_handoff_position_only",
+                     get_parameter("final_handoff_position_only").as_bool());
+    blackboard_->set("final_handoff_skip_brake",
+                     get_parameter("final_handoff_skip_brake").as_bool());
 
     // 梅林区静态配置（Move/Fetch 内部计算用）
     auto meilin_cfg = std::make_shared<r2_bt::MeilinConfig>();
@@ -307,6 +322,8 @@ private:
   {
     if (region.empty() || region == "full" || region == "full_match")
       return "full_match.xml";
+    if (region == "capacity_1" || region == "capacity1")
+      return "capacity_1.xml";
     if (region == "prepare" || region == "prepare_area")
       return "prepare_area.xml";
     if (region == "meilin" || region == "minimal_meilin" || region == "meilin_stage")
@@ -319,14 +336,17 @@ private:
   static bool region_needs_prepare(const std::string& region)
   {
     return region == "prepare" || region == "prepare_area" ||
+           region == "capacity_1" || region == "capacity1" ||
            region == "full" || region == "full_match";
   }
 
   static bool region_needs_meilin(const std::string& region)
   {
     return region == "meilin" || region == "minimal_meilin" ||
-           region == "meilin_stage" || region == "full" || region == "full_match";
-  }
+           region == "meilin_stage" ||
+           region == "capacity_1" || region == "capacity1" ||
+           region == "full" || region == "full_match";
+	  }
 
   static bool region_needs_final(const std::string& region)
   {
@@ -858,6 +878,25 @@ private:
                          final_cfg, "place_signal_timeout_sec", 0.0));
     blackboard_->set("final_post_place_wait_sec",
                      yaml_value<double>(final_cfg, "post_place_wait_sec", 3.0));
+
+    const auto handoff = final_cfg["motion_handoff"];
+    blackboard_->set("final_handoff_distance",
+                     yaml_value<double>(
+                         handoff, "distance",
+                         get_parameter("final_handoff_distance").as_double()));
+    blackboard_->set("final_handoff_count",
+                     yaml_value<int>(
+                         handoff, "count",
+                         static_cast<int>(get_parameter("final_handoff_count").as_int())));
+    blackboard_->set("final_handoff_position_only",
+                     yaml_value<bool>(
+                         handoff, "position_only",
+                         get_parameter("final_handoff_position_only").as_bool()));
+    blackboard_->set("final_handoff_skip_brake",
+                     yaml_value<bool>(
+                         handoff, "skip_brake",
+                         get_parameter("final_handoff_skip_brake").as_bool()));
+
     load_final_chassis_height_config(final_cfg["chassis_height"]);
     const double standby_x = yaml_value<double>(standby, "target_x", 0.0);
     const double standby_y = yaml_value<double>(standby, "target_y", 0.0);

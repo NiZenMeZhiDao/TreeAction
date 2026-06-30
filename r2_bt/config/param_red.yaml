@@ -55,6 +55,11 @@ final_area:
   command_timeout_sec: 0.0
   place_signal_timeout_sec: 0.0
   post_place_wait_sec: 3.0
+  motion_handoff:
+    distance: 0.8
+    count: 2
+    position_only: true
+    skip_brake: true
   chassis_height:
     topic: "t0x0112_final"
     waypoint1_height: 60.0

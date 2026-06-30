@@ -13,6 +13,10 @@
                                    height_wp1="{final_chassis_height_wp1}"
                                    height_wp3="{final_chassis_height_wp3}"
                                    settle_sec="{final_chassis_height_settle_sec}"
+                                   handoff_distance="{final_handoff_distance}"
+                                   handoff_count="{final_handoff_count}"
+                                   handoff_position_only="{final_handoff_position_only}"
+                                   handoff_skip_brake="{final_handoff_skip_brake}"
                                    retry_attempts="3"
                                    message="{last_error}"/>
       </Sequence>

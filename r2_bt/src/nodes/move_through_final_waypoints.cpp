@@ -24,6 +24,14 @@ BT::PortsList MoveThroughFinalWaypoints::providedPorts()
                           "Seconds to wait after publishing height"),
     BT::InputPort<int>("retry_attempts", 3,
                        "Attempts per waypoint before failing"),
+    BT::InputPort<double>("handoff_distance", 0.8,
+                          "For early waypoints, finish when this close to target; <=0 disables"),
+    BT::InputPort<int>("handoff_count", 2,
+                       "Number of initial waypoints that use handoff completion"),
+    BT::InputPort<bool>("handoff_position_only", true,
+                        "If true, handoff completion ignores yaw error"),
+    BT::InputPort<bool>("handoff_skip_brake", true,
+                        "If true, successful handoff completion does not brake"),
     BT::OutputPort<std::string>("message"),
   };
 }
@@ -77,6 +85,20 @@ BT::NodeStatus MoveThroughFinalWaypoints::onStart()
   {
     retry_attempts_ = 1;
   }
+  handoff_distance_ = getInput<double>("handoff_distance").value_or(0.8);
+  if (handoff_distance_ < 0.0)
+  {
+    handoff_distance_ = 0.0;
+  }
+  handoff_count_ = getInput<int>("handoff_count").value_or(2);
+  if (handoff_count_ < 0)
+  {
+    handoff_count_ = 0;
+  }
+  handoff_position_only_ =
+      getInput<bool>("handoff_position_only").value_or(true);
+  handoff_skip_brake_ =
+      getInput<bool>("handoff_skip_brake").value_or(true);
 
   rclcpp::Publisher<HeightMsg>::SharedPtr shared_publisher;
   std::string shared_topic;
@@ -159,6 +181,15 @@ BT::NodeStatus MoveThroughFinalWaypoints::send_current_goal()
   goal.y = waypoint.target_y;
   goal.yaw_deg = waypoint.target_yaw * 180.0 / M_PI;
   goal.pid_profile = static_cast<uint8_t>(waypoint.pid_profile);
+  const bool use_handoff =
+      handoff_distance_ > 0.0 &&
+      waypoint_index_ < static_cast<std::size_t>(handoff_count_);
+  if (use_handoff)
+  {
+    goal.completion_distance = handoff_distance_;
+    goal.completion_position_only = handoff_position_only_;
+    goal.skip_brake_on_success = handoff_skip_brake_;
+  }
 
   auto send_goal_options = rclcpp_action::Client<MoveToPoseAction>::SendGoalOptions();
   send_goal_options.goal_response_callback =
@@ -193,11 +224,13 @@ BT::NodeStatus MoveThroughFinalWaypoints::send_current_goal()
   action_client_->async_send_goal(goal, send_goal_options);
   RCLCPP_INFO(node_->get_logger(),
               "[MoveThroughFinalWaypoints] wp%zu/%zu attempt %d/%d: "
-              "x=%.3f y=%.3f yaw_deg=%.1f pid=%u timeout=%.1f",
+              "x=%.3f y=%.3f yaw_deg=%.1f pid=%u timeout=%.1f "
+              "handoff=%.3f",
               waypoint_index_ + 1, waypoints_->size(),
               attempt_, retry_attempts_,
               waypoint.target_x, waypoint.target_y, goal.yaw_deg,
-              goal.pid_profile, waypoint.timeout_sec);
+              goal.pid_profile, waypoint.timeout_sec,
+              use_handoff ? handoff_distance_ : 0.0);
   return BT::NodeStatus::RUNNING;
 }
 

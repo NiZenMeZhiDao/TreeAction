@@ -882,8 +882,8 @@ class StepMotionActionServer(Node):
                 self.current_state = State.UP_4_FRONT_DOCK_APPROACH
 
         elif state == State.UP_4_FRONT_DOCK_APPROACH:
-            v1_dist = self._get_v_distance_safe(1, default=999.0)
-            cond = v1_dist < 80.0
+            v0_dist = self._get_v_distance_safe(0, default=999.0)
+            cond = v0_dist < 80.0
             if self._is_stable(cond, 'up4_dist', threshold=2):
                 self.current_state = State.UP_5_RETRACT_FRONT_WHEELS
 

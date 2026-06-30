@@ -7,7 +7,7 @@ r2_autonomy.launch.py — 真机全自动分阶段启动
   ros2 launch r2_bringup r2_autonomy.launch.py startup_profile:=prepare
 
 startup_profile:
-  full / prepare / minimal_meilin / final
+  full / prepare / minimal_meilin / final / capacity_1
 """
 
 from launch import LaunchDescription
@@ -24,7 +24,7 @@ def generate_launch_description():
     startup_profile_arg = DeclareLaunchArgument(
         'startup_profile',
         default_value='full',
-        description='Startup profile: full, prepare, minimal_meilin, or final')
+        description='Startup profile: full, prepare, minimal_meilin, final, or capacity_1')
 
     match_config_arg = DeclareLaunchArgument(
         'match_config',
@@ -82,6 +82,31 @@ def generate_launch_description():
         default_value='single_axis',
         description='Meilin motion mode: single_axis or omni')
 
+    prepare_to_meilin_wait_arg = DeclareLaunchArgument(
+        'prepare_to_meilin_wait_sec',
+        default_value='1.0',
+        description='Wait time between PrepareArea success and MeilinArea start; 0 disables it')
+
+    final_handoff_distance_arg = DeclareLaunchArgument(
+        'final_handoff_distance',
+        default_value='0.8',
+        description='FinalArea standby handoff distance for early waypoints; 0 disables it')
+
+    final_handoff_count_arg = DeclareLaunchArgument(
+        'final_handoff_count',
+        default_value='2',
+        description='Number of initial FinalArea standby waypoints using handoff completion')
+
+    final_handoff_position_only_arg = DeclareLaunchArgument(
+        'final_handoff_position_only',
+        default_value='true',
+        description='Whether FinalArea handoff ignores yaw error')
+
+    final_handoff_skip_brake_arg = DeclareLaunchArgument(
+        'final_handoff_skip_brake',
+        default_value='true',
+        description='Whether successful FinalArea handoff skips braking')
+
     launch_meilin_web_arg = DeclareLaunchArgument(
         'launch_meilin_web',
         default_value='true',
@@ -132,23 +157,23 @@ def generate_launch_description():
         description='Number of spear targets expected by pick_action recognition')
 
     prepare_or_full_profile = PythonExpression([
-        "'", LaunchConfiguration('startup_profile'), "' in ['prepare', 'full']"
+        "'", LaunchConfiguration('startup_profile'), "' in ['prepare', 'capacity_1', 'full']"
     ])
     meilin_or_full_profile = PythonExpression([
-        "'", LaunchConfiguration('startup_profile'), "' in ['minimal_meilin', 'full']"
+        "'", LaunchConfiguration('startup_profile'), "' in ['minimal_meilin', 'capacity_1', 'full']"
     ])
     meilin_web_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'),
-        "' in ['minimal_meilin', 'full'] and '",
+        "' in ['minimal_meilin', 'capacity_1', 'full'] and '",
         LaunchConfiguration('launch_meilin_web'), "' == 'true'"
     ])
     sensor_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'),
-        "' in ['prepare', 'minimal_meilin', 'full']"
+        "' in ['prepare', 'minimal_meilin', 'capacity_1', 'full']"
     ])
     localization_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'),
-        "' in ['prepare', 'minimal_meilin', 'full']"
+        "' in ['prepare', 'minimal_meilin', 'capacity_1', 'full']"
     ])
     tree_file = PythonExpression([
         "'prepare_area.xml' if '", LaunchConfiguration('startup_profile'),
@@ -156,7 +181,9 @@ def generate_launch_description():
         LaunchConfiguration('startup_profile'),
         "' == 'minimal_meilin' else ('final_area.xml' if '",
         LaunchConfiguration('startup_profile'),
-        "' == 'final' else 'full_match.xml'))"
+        "' == 'final' else ('capacity_1.xml' if '",
+        LaunchConfiguration('startup_profile'),
+        "' == 'capacity_1' else 'full_match.xml')))"
     ])
     default_region = PythonExpression([
         "'", LaunchConfiguration('default_region'), "' if '",
@@ -166,7 +193,9 @@ def generate_launch_description():
         LaunchConfiguration('startup_profile'),
         "' == 'minimal_meilin' else ('final' if '",
         LaunchConfiguration('startup_profile'),
-        "' == 'final' else 'full')))"
+        "' == 'final' else ('capacity_1' if '",
+        LaunchConfiguration('startup_profile'),
+        "' == 'capacity_1' else 'full'))))"
     ])
 
     odin_launch = IncludeLaunchDescription(
@@ -299,6 +328,8 @@ def generate_launch_description():
             'buffer_service': '/get_action_seq',
             'meilin_pose_topic': LaunchConfiguration('relocation_topic'),
             'meilin_motion_mode': LaunchConfiguration('meilin_motion_mode'),
+            'prepare_to_meilin_wait_sec': ParameterValue(
+                LaunchConfiguration('prepare_to_meilin_wait_sec'), value_type=float),
             'autostart': ParameterValue(
                 LaunchConfiguration('autostart'), value_type=bool),
             'default_region': default_region,
@@ -306,6 +337,14 @@ def generate_launch_description():
                 LaunchConfiguration('require_map_relocalization'), value_type=bool),
             'localization_timeout_sec': ParameterValue(
                 LaunchConfiguration('localization_timeout_sec'), value_type=float),
+            'final_handoff_distance': ParameterValue(
+                LaunchConfiguration('final_handoff_distance'), value_type=float),
+            'final_handoff_count': ParameterValue(
+                LaunchConfiguration('final_handoff_count'), value_type=int),
+            'final_handoff_position_only': ParameterValue(
+                LaunchConfiguration('final_handoff_position_only'), value_type=bool),
+            'final_handoff_skip_brake': ParameterValue(
+                LaunchConfiguration('final_handoff_skip_brake'), value_type=bool),
         }],
     )
 
@@ -322,6 +361,11 @@ def generate_launch_description():
         require_map_relocalization_arg,
         localization_timeout_arg,
         meilin_motion_mode_arg,
+        prepare_to_meilin_wait_arg,
+        final_handoff_distance_arg,
+        final_handoff_count_arg,
+        final_handoff_position_only_arg,
+        final_handoff_skip_brake_arg,
         launch_meilin_web_arg,
         rosbridge_port_arg,
         mf_planner_params_arg,

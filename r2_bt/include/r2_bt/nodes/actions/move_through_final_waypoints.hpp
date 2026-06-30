@@ -56,9 +56,13 @@ private:
   std::size_t waypoint_index_ = 0;
   int attempt_ = 0;
   int retry_attempts_ = 3;
+  int handoff_count_ = 2;
   double settle_sec_ = 0.2;
+  double handoff_distance_ = 0.8;
   double height_wp1_ = 60.0;
   double height_wp3_ = 20.0;
+  bool handoff_position_only_ = true;
+  bool handoff_skip_brake_ = true;
   std::string error_msg_;
   BT::NodeStatus result_status_ = BT::NodeStatus::FAILURE;
 

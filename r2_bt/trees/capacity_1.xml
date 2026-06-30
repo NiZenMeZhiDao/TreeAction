@@ -1,0 +1,159 @@
+<?xml version="1.0"?>
+<!--
+  capacity_1.xml - 前两区独立执行树
+
+  适用场景: 只执行 PrepareArea -> 等待 -> MeilinArea，不进入 FinalArea。
+  固定参数来自 param_config 的 prepare_area.* 与 meilin_area.* 字段。
+-->
+<root BTCPP_format="4" main_tree_to_execute="Capacity1">
+
+  <BehaviorTree ID="Capacity1">
+    <Sequence>
+      <SubTree ID="PrepareArea" _autoremap="1" />
+      <WaitSeconds seconds="{prepare_to_meilin_wait_sec}"/>
+      <SubTree ID="MeilinArea" _autoremap="1" />
+      <SetDebugStatus execution_state="MISSION_SUCCESS" active_action="" last_error=""/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PrepareArea">
+    <SequenceWithMemory>
+
+      <Sequence name="PREPARE_01_MOVE_TO_SPEAR_PICKUP">
+        <RetrySegment num_attempts="{prepare_motion_retry_attempts}">
+          <MoveToPose target_x="{prepare_spear_pickup_target_x}"
+                      target_y="{prepare_spear_pickup_target_y}"
+                      target_yaw="{prepare_spear_pickup_target_yaw}"
+                      frame_id="{prepare_spear_pickup_frame_id}"
+                      pid_profile="{prepare_motion_pid_profile}"
+                      timeout_sec="{prepare_motion_timeout_sec}"
+                      error_msg="{last_error}"/>
+        </RetrySegment>
+      </Sequence>
+
+      <Sequence name="PREPARE_02_GRASP_SPEAR">
+        <RetrySegment num_attempts="{prepare_pick_action_retry_attempts}">
+          <PickAction server_name="{prepare_pick_action_server_name}"
+                      expected_count="{prepare_pick_action_expected_count}"
+                      timeout_sec="{prepare_pick_action_timeout_sec}"
+                      message="{last_error}"/>
+        </RetrySegment>
+      </Sequence>
+
+      <Parallel name="PREPARE_03_DOCK_STANDBY_AND_EXTEND"
+                success_count="2"
+                failure_count="1">
+        <RetrySegment num_attempts="{prepare_motion_retry_attempts}">
+          <MoveToPose target_x="{prepare_dock_standby_target_x}"
+                      target_y="{prepare_dock_standby_target_y}"
+                      target_yaw="{prepare_dock_standby_target_yaw}"
+                      frame_id="{prepare_dock_standby_frame_id}"
+                      pid_profile="{prepare_motion_pid_profile}"
+                      timeout_sec="{prepare_motion_timeout_sec}"
+                      error_msg="{last_error}"/>
+        </RetrySegment>
+
+        <RetrySegment num_attempts="{prepare_spear_tool_retry_attempts}">
+          <AresToolAction action="{prepare_spear_tool_dock_extend_action}"
+                          service_name="{prepare_spear_tool_service_name}"
+                          timeout_sec="{prepare_spear_tool_dock_extend_timeout_sec}"
+                          arg0="{prepare_spear_tool_arg0}"
+                          arg1="{prepare_spear_tool_arg1}"
+                          arg2="{prepare_spear_tool_arg2}"
+                          arg3="{prepare_spear_tool_arg3}"
+                          message="{last_error}"/>
+        </RetrySegment>
+      </Parallel>
+
+    </SequenceWithMemory>
+  </BehaviorTree>
+
+  <BehaviorTree ID="MeilinArea">
+    <ForEachSegment stop_type="PLAN_DONE">
+      <Sequence>
+        <PopNextMeilinSegment queue="{segment_queue}"
+                              segment_type="{segment_type}"
+                              move_row="{move_row}"
+                              move_col="{move_col}"
+                              target_height_mm="{target_height_mm}"
+                              kfs_row="{kfs_row}"
+                              kfs_col="{kfs_col}"
+                              height_diff="{height_diff}"
+                              target_yaw="{target_yaw}"/>
+        <SwitchSegmentType segment_type="{segment_type}">
+
+          <Sequence name="move">
+            <MeilinPlanMove name="MEILIN_01_PLAN_MOVE"
+                            move_row="{move_row}"
+                            move_col="{move_col}"
+                            target_height_mm="{target_height_mm}"
+                            target_yaw="{target_yaw}"
+                            target_x="{move_target_x}"
+                            target_y="{move_target_y}"
+                            move_target_yaw="{move_target_yaw}"
+                            align_timeout_sec="{move_align_timeout_sec}"
+                            entry_move="{move_entry_move}"
+                            step_needed="{move_step_needed}"
+                            center_motion_needed="{move_center_motion_needed}"
+                            step_mode="{move_step_mode}"
+                            step_direction="{move_step_direction}"
+                            step_height="{move_step_height}"
+                            step_correction_x="{move_step_correction_x}"
+                            step_correction_y="{move_step_correction_y}"
+                            step_correction_yaw_deg="{move_step_correction_yaw_deg}"
+                            step_timeout_sec="{move_step_timeout_sec}"
+                            message="{last_error}"/>
+
+            <StepMotionControl name="MEILIN_02_STEP_IF_HEIGHT_CHANGED"
+                               enabled="{move_step_needed}"
+                               mode="{move_step_mode}"
+                               direction="{move_step_direction}"
+                               height="{move_step_height}"
+                               correction_x="{move_step_correction_x}"
+                               correction_y="{move_step_correction_y}"
+                               correction_yaw_deg="{move_step_correction_yaw_deg}"
+                               timeout_sec="{move_step_timeout_sec}"
+                               message="{last_error}"/>
+
+            <MoveToPose name="MEILIN_03_MOVE_TO_TARGET_CENTER"
+                        enabled="{move_center_motion_needed}"
+                        target_x="{move_target_x}"
+                        target_y="{move_target_y}"
+                        target_yaw="{move_target_yaw}"
+                        pid_profile="0"
+                        timeout_sec="{move_align_timeout_sec}"
+                        error_msg="{last_error}"/>
+
+            <MeilinCommitMove name="MEILIN_04_COMMIT_MOVE_STATE"
+                              move_row="{move_row}"
+                              move_col="{move_col}"
+                              target_height_mm="{target_height_mm}"
+                              target_yaw="{target_yaw}"
+                              entry_move="{move_entry_move}"
+                              message="{last_error}"/>
+          </Sequence>
+
+          <Sequence name="fetch">
+            <Fetch name="MEILIN_FETCH"
+                   kfs_row="{kfs_row}"
+                   kfs_col="{kfs_col}"
+                   height_diff="{height_diff}"
+                   target_yaw="{target_yaw}"
+                   message="{last_error}"/>
+          </Sequence>
+
+          <Sequence name="PLAN_DONE">
+            <SetDebugStatus execution_state="MEILIN_SUCCESS" active_action="" last_error=""/>
+          </Sequence>
+
+          <Sequence name="default">
+            <SetDebugStatus execution_state="ACTION_FAILED" active_action="SegmentDispatch"
+                            last_error="Unsupported segment_type in Capacity1"/>
+          </Sequence>
+
+        </SwitchSegmentType>
+      </Sequence>
+    </ForEachSegment>
+  </BehaviorTree>
+
+</root>

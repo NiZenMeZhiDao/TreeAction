@@ -46,6 +46,7 @@ constexpr uint32_t kArmPlaceHigh = 6;
 struct CommandResult {
 	bool completed = false; // matching feedback frame received
 	int32_t status = 0;     // 0 = completed; negative = -errno
+	std::string detail;
 };
 
 class AresUsb {
@@ -70,10 +71,11 @@ class AresUsb {
 				   const std::array<float, 4> &args, int timeout_ms);
 
       private:
-	bool write_frame(uint16_t sync_id, uint32_t action, const std::array<float, 4> &args);
+	int write_frame(uint16_t sync_id, uint32_t action, const std::array<float, 4> &args,
+			 std::string *detail = nullptr);
 	// 保活帧：刷新下位机 last_receive，避免长动作期间被判定为断连(online=false)
 	// 而抑制完成帧。下位机把它当作 no-op 的 REPL 帧解析。
-	bool write_keepalive();
+	int write_keepalive(std::string *detail = nullptr);
 
 	uint16_t vid_;
 	uint16_t pid_;

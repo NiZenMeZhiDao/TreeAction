@@ -447,14 +447,18 @@ prepare_area:
       y: 0.20
       yaw: 0.00
       frame_id: "map"
+      motion: {pid_profile: 1, max_vel: 0.0, max_wz: 0.0, timeout_sec: 10.0}
     dock_standby:
       x: 0.80
       y: 0.20
       yaw: 0.00
       frame_id: "map"
+      motion: {pid_profile: 1, max_vel: 0.0, max_wz: 0.0, timeout_sec: 10.0}
 
   motion:
     pid_profile: 1
+    max_vel: 0.0
+    max_wz: 0.0
     timeout_sec: 10.0
     retry_attempts: 3
 
@@ -482,6 +486,8 @@ meilin_area:
   height_tolerance: 1.0
   pose_timeout_sec: 1.0
   cell_center_tolerance: 0.15
+  move_motion: {pid_profile: 0, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}
+  fetch_motion: {pid_profile: 0, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}
   default_align_timeout: 30.0
   default_suspension_timeout: 10.0
   default_grasp_timeout: 30.0
@@ -493,19 +499,25 @@ final_area:
   command_timeout_sec: 0.0
   place_signal_timeout_sec: 0.0
   post_place_wait_sec: 1.0
+  motion: {pid_profile: 1, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}
   standby:
     target_x: 9.20
     target_y: -1.20
     target_yaw: -1.5708
-    timeout_sec: 60.0
+    motion: {pid_profile: 1, max_vel: 0.0, max_wz: 0.0, timeout_sec: 60.0}
   targets:
-    2_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    2_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    2_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
-    3_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, max_speed: 0.40, pid_profile: 1, timeout_sec: 30.0}
+    2_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, motion: {pid_profile: 1, max_vel: 0.40, max_wz: 0.8, timeout_sec: 30.0}}
+    2_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, motion: {pid_profile: 1, max_vel: 0.40, max_wz: 0.8, timeout_sec: 30.0}}
+    2_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, motion: {pid_profile: 1, max_vel: 0.40, max_wz: 0.8, timeout_sec: 30.0}}
+    3_left: {target_x: 10.84, target_y: -1.20, target_yaw: -1.5708, motion: {pid_profile: 1, max_vel: 0.40, max_wz: 0.8, timeout_sec: 30.0}}
+    3_mid: {target_x: 10.30, target_y: -1.20, target_yaw: -1.5708, motion: {pid_profile: 1, max_vel: 0.40, max_wz: 0.8, timeout_sec: 30.0}}
+    3_right: {target_x: 9.76, target_y: -1.20, target_yaw: -1.5708, motion: {pid_profile: 1, max_vel: 0.40, max_wz: 0.8, timeout_sec: 30.0}}
 ```
+
+`max_vel` 是 MoveToPose 的单次 goal 线速度上限覆盖值，单位 m/s；不配置或配置为
+`0.0` 时沿用 `pid_profile` 的原始最大线速度。`max_wz` 是单次 goal 最大 yaw
+角速度覆盖值，单位 rad/s；不配置或配置为 `0.0` 时沿用 `pid_profile` 的原始最大角速度。
+旧配置名 `max_speed` 仍作为 `max_vel` 的兼容别名读取。
 
 启动时通过 `param_config` 指定：
 

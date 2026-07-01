@@ -191,6 +191,8 @@ public:
     meilin_cfg->pose_timeout_sec = meilin_pose_timeout_sec_;
     meilin_cfg->cell_center_tolerance = meilin_cell_center_tolerance_;
     meilin_cfg->motion_mode = meilin_motion_mode_;
+    meilin_cfg->move_motion = meilin_move_motion_;
+    meilin_cfg->fetch_motion = meilin_fetch_motion_;
     meilin_cfg->rows = meilin_rows_;
     meilin_cfg->cols = meilin_cols_;
     blackboard_->set("meilin_config", meilin_cfg);
@@ -614,6 +616,8 @@ private:
     meilin_cell_center_tolerance_ =
         get_parameter("meilin_cell_center_tolerance").as_double();
     meilin_motion_mode_ = get_parameter("meilin_motion_mode").as_string();
+    meilin_move_motion_.timeout_sec = meilin_default_align_timeout_;
+    meilin_fetch_motion_.timeout_sec = meilin_default_align_timeout_;
     if (meilin_motion_mode_ != "omni" && meilin_motion_mode_ != "single_axis")
     {
       RCLCPP_WARN(get_logger(),
@@ -702,13 +706,15 @@ private:
       return;
     }
 
-    load_prepare_point("prepare_spear_pickup_", spear_pickup);
-    load_prepare_point("prepare_dock_standby_", dock_standby);
+    const auto prepare_motion =
+        yaml_motion_config(motion, r2_bt::MotionConfig{1, 0.0, 0.0, 10.0});
+    load_prepare_point("prepare_spear_pickup_", spear_pickup, prepare_motion);
+    load_prepare_point("prepare_dock_standby_", dock_standby, prepare_motion);
 
-    blackboard_->set("prepare_motion_pid_profile",
-                     yaml_value<int>(motion, "pid_profile", 1));
-    blackboard_->set("prepare_motion_timeout_sec",
-                     yaml_value<double>(motion, "timeout_sec", 10.0));
+    blackboard_->set("prepare_motion_pid_profile", prepare_motion.pid_profile);
+    blackboard_->set("prepare_motion_max_vel", prepare_motion.max_vel);
+    blackboard_->set("prepare_motion_max_wz", prepare_motion.max_wz);
+    blackboard_->set("prepare_motion_timeout_sec", prepare_motion.timeout_sec);
     blackboard_->set("prepare_motion_retry_attempts",
                      yaml_value<int>(motion, "retry_attempts", 3));
 
@@ -814,6 +820,12 @@ private:
                            meilin_suspension_normal_height_);
     meilin_motion_mode_ =
         yaml_value<std::string>(meilin, "motion_mode", meilin_motion_mode_);
+    const auto default_meilin_motion =
+        r2_bt::MotionConfig{0, 0.0, 0.0, meilin_default_align_timeout_};
+    meilin_move_motion_ =
+        yaml_motion_config(meilin["move_motion"], default_meilin_motion);
+    meilin_fetch_motion_ =
+        yaml_motion_config(meilin["fetch_motion"], default_meilin_motion);
     if (meilin_motion_mode_ != "omni" && meilin_motion_mode_ != "single_axis")
     {
       RCLCPP_WARN(get_logger(),
@@ -898,11 +910,16 @@ private:
                          get_parameter("final_handoff_skip_brake").as_bool()));
 
     load_final_chassis_height_config(final_cfg["chassis_height"]);
+    const auto final_motion = yaml_motion_config(
+        final_cfg["motion"], r2_bt::MotionConfig{1, 0.0, 0.0, 30.0});
     const double standby_x = yaml_value<double>(standby, "target_x", 0.0);
     const double standby_y = yaml_value<double>(standby, "target_y", 0.0);
     const double standby_yaw = yaml_value<double>(standby, "target_yaw", 0.0);
-    const int standby_pid_profile = yaml_value<int>(standby, "pid_profile", 1);
-    const double standby_timeout_sec = yaml_value<double>(standby, "timeout_sec", 60.0);
+    auto standby_motion_fallback = final_motion;
+    standby_motion_fallback.timeout_sec = yaml_value<double>(
+        final_cfg["motion"], "timeout_sec", 60.0);
+    const auto standby_motion =
+        yaml_motion_config(standby, standby_motion_fallback);
     blackboard_->set("final_standby_target_x",
                      standby_x);
     blackboard_->set("final_standby_target_y",
@@ -910,9 +927,13 @@ private:
     blackboard_->set("final_standby_target_yaw",
                      standby_yaw);
     blackboard_->set("final_standby_pid_profile",
-                     standby_pid_profile);
+                     standby_motion.pid_profile);
+    blackboard_->set("final_standby_max_vel",
+                     standby_motion.max_vel);
+    blackboard_->set("final_standby_max_wz",
+                     standby_motion.max_wz);
     blackboard_->set("final_standby_timeout_sec",
-                     standby_timeout_sec);
+                     standby_motion.timeout_sec);
 
     const double side_sign = standby_y < 0.0 ? -1.0 : 1.0;
     const auto standby_waypoints = final_cfg["standby_waypoints"];
@@ -949,13 +970,17 @@ private:
       {
         const bool is_wp1 = i == 0;
         const bool is_wp2 = i == 1;
+        auto fallback_motion = final_motion;
+        fallback_motion.pid_profile = is_wp1 || is_wp2 ? 1 : standby_motion.pid_profile;
+        fallback_motion.timeout_sec = is_wp1 || is_wp2 ? 30.0 : standby_motion.timeout_sec;
+        fallback_motion.max_vel = is_wp1 || is_wp2 ? final_motion.max_vel : standby_motion.max_vel;
+        fallback_motion.max_wz = is_wp1 || is_wp2 ? final_motion.max_wz : standby_motion.max_wz;
         final_waypoints->push_back(make_final_waypoint(
             standby_waypoints[i],
             is_wp1 ? 7.80 : (is_wp2 ? 8.60 : standby_x),
             is_wp1 ? side_sign * 0.60 : (is_wp2 ? side_sign * 1.00 : standby_y),
             standby_yaw,
-            is_wp1 || is_wp2 ? 1 : standby_pid_profile,
-            is_wp1 || is_wp2 ? 30.0 : standby_timeout_sec));
+            fallback_motion));
       }
     }
     else
@@ -985,21 +1010,27 @@ private:
 
       if (waypoint_count >= 1)
       {
+        auto fallback_motion = final_motion;
+        fallback_motion.pid_profile = 1;
+        fallback_motion.timeout_sec = 30.0;
         final_waypoints->push_back(
             make_final_waypoint(YAML::Node{}, 7.80, side_sign * 0.60,
-                                standby_yaw, 1, 30.0));
+                                standby_yaw, fallback_motion));
       }
       if (waypoint_count >= 2)
       {
+        auto fallback_motion = final_motion;
+        fallback_motion.pid_profile = 1;
+        fallback_motion.timeout_sec = 30.0;
         final_waypoints->push_back(
             make_final_waypoint(YAML::Node{}, 8.60, side_sign * 1.00,
-                                standby_yaw, 1, 30.0));
+                                standby_yaw, fallback_motion));
       }
       if (waypoint_count >= 3)
       {
         final_waypoints->push_back(
             make_final_waypoint(YAML::Node{}, standby_x, standby_y, standby_yaw,
-                                standby_pid_profile, standby_timeout_sec));
+                                standby_motion));
       }
     }
     blackboard_->set("final_standby_waypoints", final_waypoints);
@@ -1051,10 +1082,11 @@ private:
                        yaml_value<double>(target, "target_y", 0.0));
       blackboard_->set(prefix + "target_yaw",
                        yaml_value<double>(target, "target_yaw", 0.0));
-      blackboard_->set(prefix + "pid_profile",
-                       yaml_value<int>(target, "pid_profile", 1));
-      blackboard_->set(prefix + "timeout_sec",
-                       yaml_value<double>(target, "timeout_sec", 30.0));
+      const auto target_motion = yaml_motion_config(target, final_motion);
+      blackboard_->set(prefix + "pid_profile", target_motion.pid_profile);
+      blackboard_->set(prefix + "max_vel", target_motion.max_vel);
+      blackboard_->set(prefix + "max_wz", target_motion.max_wz);
+      blackboard_->set(prefix + "timeout_sec", target_motion.timeout_sec);
     }
 
     blackboard_->set("execution_state", std::string{"CONFIG_LOADED"});
@@ -1080,6 +1112,8 @@ private:
       cfg_ptr->pose_timeout_sec = meilin_pose_timeout_sec_;
       cfg_ptr->cell_center_tolerance = meilin_cell_center_tolerance_;
       cfg_ptr->motion_mode = meilin_motion_mode_;
+      cfg_ptr->move_motion = meilin_move_motion_;
+      cfg_ptr->fetch_motion = meilin_fetch_motion_;
       cfg_ptr->rows = meilin_rows_;
       cfg_ptr->cols = meilin_cols_;
     }
@@ -1093,29 +1127,37 @@ private:
     blackboard_->set("meilin_entry_move_pending", false);
   }
 
-  void load_prepare_point(const std::string& prefix, const YAML::Node& node)
+  void load_prepare_point(const std::string& prefix,
+                          const YAML::Node& node,
+                          const r2_bt::MotionConfig& fallback_motion)
   {
     blackboard_->set(prefix + "target_x", yaml_value<double>(node, "x", 0.0));
     blackboard_->set(prefix + "target_y", yaml_value<double>(node, "y", 0.0));
     blackboard_->set(prefix + "target_yaw", yaml_value<double>(node, "yaw", 0.0));
     blackboard_->set(prefix + "frame_id",
                      yaml_value<std::string>(node, "frame_id", "map"));
+    const auto motion = yaml_motion_config(node, fallback_motion);
+    blackboard_->set(prefix + "pid_profile", motion.pid_profile);
+    blackboard_->set(prefix + "max_vel", motion.max_vel);
+    blackboard_->set(prefix + "max_wz", motion.max_wz);
+    blackboard_->set(prefix + "timeout_sec", motion.timeout_sec);
   }
 
   r2_bt::FinalWaypoint make_final_waypoint(const YAML::Node& node,
                                            double fallback_x,
                                            double fallback_y,
                                            double fallback_yaw,
-                                           int fallback_pid_profile,
-                                           double fallback_timeout_sec)
+                                           const r2_bt::MotionConfig& fallback_motion)
   {
     r2_bt::FinalWaypoint waypoint;
     waypoint.target_x = yaml_value<double>(node, "target_x", fallback_x);
     waypoint.target_y = yaml_value<double>(node, "target_y", fallback_y);
     waypoint.target_yaw = yaml_value<double>(node, "target_yaw", fallback_yaw);
-    waypoint.pid_profile = yaml_value<int>(node, "pid_profile", fallback_pid_profile);
-    waypoint.timeout_sec =
-        yaml_value<double>(node, "timeout_sec", fallback_timeout_sec);
+    const auto motion = yaml_motion_config(node, fallback_motion);
+    waypoint.pid_profile = motion.pid_profile;
+    waypoint.max_vel = motion.max_vel;
+    waypoint.max_wz = motion.max_wz;
+    waypoint.timeout_sec = motion.timeout_sec;
     return waypoint;
   }
 
@@ -1154,6 +1196,50 @@ private:
       return fallback;
     }
     return child.as<T>();
+  }
+
+  static double yaml_max_vel(const YAML::Node& node,
+                             double fallback)
+  {
+    if (!node)
+    {
+      return fallback;
+    }
+    if (const auto max_vel = node["max_vel"])
+    {
+      return max_vel.as<double>();
+    }
+    if (const auto max_speed = node["max_speed"])
+    {
+      return max_speed.as<double>();
+    }
+    return fallback;
+  }
+
+  static r2_bt::MotionConfig yaml_motion_fields(const YAML::Node& node,
+                                                r2_bt::MotionConfig config)
+  {
+    if (!node)
+    {
+      return config;
+    }
+    config.pid_profile = yaml_value<int>(node, "pid_profile", config.pid_profile);
+    config.max_vel = yaml_max_vel(node, config.max_vel);
+    config.max_wz = yaml_value<double>(node, "max_wz", config.max_wz);
+    config.timeout_sec = yaml_value<double>(node, "timeout_sec", config.timeout_sec);
+    return config;
+  }
+
+  static r2_bt::MotionConfig yaml_motion_config(
+      const YAML::Node& node,
+      const r2_bt::MotionConfig& fallback)
+  {
+    auto config = yaml_motion_fields(node, fallback);
+    if (node)
+    {
+      config = yaml_motion_fields(node["motion"], config);
+    }
+    return config;
   }
 
   static std::vector<double> yaml_double_vector(const YAML::Node& node)
@@ -1249,27 +1335,41 @@ private:
                      final_cfg.value("post_place_wait_sec", 3.0));
     load_final_chassis_height_config(YAML::Node{});
 
+    const auto final_motion = json_motion_config(
+        final_cfg.value("motion", nlohmann::json::object()),
+        r2_bt::MotionConfig{1, 0.0, 0.0, 30.0});
     const double standby_x = standby.value("target_x", 0.0);
     const double standby_y = standby.value("target_y", 0.0);
     const double standby_yaw = standby.value("target_yaw", 0.0);
-    const int standby_pid_profile = standby.value("pid_profile", 1);
-    const double standby_timeout_sec = standby.value("timeout_sec", 60.0);
+    auto standby_motion_fallback = final_motion;
+    if (!final_cfg.contains("motion") ||
+        !final_cfg["motion"].contains("timeout_sec"))
+    {
+      standby_motion_fallback.timeout_sec = 60.0;
+    }
+    const auto standby_motion =
+        json_motion_config(standby, standby_motion_fallback);
     blackboard_->set("final_standby_target_x", standby_x);
     blackboard_->set("final_standby_target_y", standby_y);
     blackboard_->set("final_standby_target_yaw", standby_yaw);
-    blackboard_->set("final_standby_pid_profile", standby_pid_profile);
-    blackboard_->set("final_standby_timeout_sec", standby_timeout_sec);
+    blackboard_->set("final_standby_pid_profile", standby_motion.pid_profile);
+    blackboard_->set("final_standby_max_vel", standby_motion.max_vel);
+    blackboard_->set("final_standby_max_wz", standby_motion.max_wz);
+    blackboard_->set("final_standby_timeout_sec", standby_motion.timeout_sec);
 
     const double side_sign = standby_y < 0.0 ? -1.0 : 1.0;
     blackboard_->set("final_standby_waypoint_count", 0);
     auto final_waypoints = std::make_shared<r2_bt::FinalWaypointList>();
+    auto waypoint_motion = final_motion;
+    waypoint_motion.pid_profile = 1;
+    waypoint_motion.timeout_sec = 30.0;
     final_waypoints->push_back(make_final_waypoint(
-        YAML::Node{}, 7.80, side_sign * 0.60, standby_yaw, 1, 30.0));
+        YAML::Node{}, 7.80, side_sign * 0.60, standby_yaw, waypoint_motion));
     final_waypoints->push_back(make_final_waypoint(
-        YAML::Node{}, 8.60, side_sign * 1.00, standby_yaw, 1, 30.0));
+        YAML::Node{}, 8.60, side_sign * 1.00, standby_yaw, waypoint_motion));
     final_waypoints->push_back(make_final_waypoint(
         YAML::Node{}, standby_x, standby_y, standby_yaw,
-        standby_pid_profile, standby_timeout_sec));
+        standby_motion));
     blackboard_->set("final_standby_waypoints", final_waypoints);
 
     blackboard_->set("final_place_action_service_name",
@@ -1288,7 +1388,7 @@ private:
     blackboard_->set("final_place_action_arg3", 0.0);
 
     const auto load_final_target =
-        [this, &targets](const std::string& key) -> bool {
+        [this, &targets, &final_motion](const std::string& key) -> bool {
           if (!targets.contains(key) || !targets[key].is_object())
           {
             blackboard_->set("last_error",
@@ -1300,8 +1400,11 @@ private:
           blackboard_->set(prefix + "target_x", target.value("target_x", 0.0));
           blackboard_->set(prefix + "target_y", target.value("target_y", 0.0));
           blackboard_->set(prefix + "target_yaw", target.value("target_yaw", 0.0));
-          blackboard_->set(prefix + "pid_profile", target.value("pid_profile", 1));
-          blackboard_->set(prefix + "timeout_sec", target.value("timeout_sec", 30.0));
+          const auto target_motion = json_motion_config(target, final_motion);
+          blackboard_->set(prefix + "pid_profile", target_motion.pid_profile);
+          blackboard_->set(prefix + "max_vel", target_motion.max_vel);
+          blackboard_->set(prefix + "max_wz", target_motion.max_wz);
+          blackboard_->set(prefix + "timeout_sec", target_motion.timeout_sec);
           return true;
         };
 
@@ -1336,6 +1439,47 @@ private:
       else { segment += ch; }
     }
     return current->is_object() && current->contains(segment);
+  }
+
+  static double json_max_vel(const nlohmann::json& node,
+                             double fallback)
+  {
+    if (!node.is_object())
+    {
+      return fallback;
+    }
+    if (node.contains("max_vel"))
+    {
+      return node.value("max_vel", fallback);
+    }
+    return node.value("max_speed", fallback);
+  }
+
+  static r2_bt::MotionConfig json_motion_fields(
+      const nlohmann::json& node,
+      r2_bt::MotionConfig config)
+  {
+    if (!node.is_object())
+    {
+      return config;
+    }
+    config.pid_profile = node.value("pid_profile", config.pid_profile);
+    config.max_vel = json_max_vel(node, config.max_vel);
+    config.max_wz = node.value("max_wz", config.max_wz);
+    config.timeout_sec = node.value("timeout_sec", config.timeout_sec);
+    return config;
+  }
+
+  static r2_bt::MotionConfig json_motion_config(
+      const nlohmann::json& node,
+      const r2_bt::MotionConfig& fallback)
+  {
+    auto config = json_motion_fields(node, fallback);
+    if (node.is_object() && node.contains("motion"))
+    {
+      config = json_motion_fields(node["motion"], config);
+    }
+    return config;
   }
 
   std::string resolve_config_file() const
@@ -2095,6 +2239,8 @@ private:
   double meilin_pose_timeout_sec_ = 1.0;
   double meilin_cell_center_tolerance_ = 0.15;
   std::string meilin_motion_mode_ = "single_axis";
+  r2_bt::MotionConfig meilin_move_motion_{0, 0.0, 0.0, 30.0};
+  r2_bt::MotionConfig meilin_fetch_motion_{0, 0.0, 0.0, 30.0};
   uint64_t meilin_plan_counter_ = 0;
 };
 

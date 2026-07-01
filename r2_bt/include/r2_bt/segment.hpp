@@ -13,6 +13,14 @@
 namespace r2_bt
 {
 
+struct MotionConfig
+{
+  int pid_profile = 1;
+  double max_vel = 0.0;
+  double max_wz = 0.0;
+  double timeout_sec = 30.0;
+};
+
 /// 梅林区静态配置（启动时从参数加载，放入 blackboard）
 struct MeilinConfig
 {
@@ -30,6 +38,8 @@ struct MeilinConfig
   double pose_timeout_sec = 1.0;
   double cell_center_tolerance = 0.15;
   std::string motion_mode = "single_axis";
+  MotionConfig move_motion{0, 0.0, 0.0, 30.0};
+  MotionConfig fetch_motion{0, 0.0, 0.0, 30.0};
   int rows = 6;
   int cols = 3;
 };

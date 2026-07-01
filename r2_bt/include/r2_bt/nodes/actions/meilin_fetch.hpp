@@ -62,6 +62,7 @@ private:
 
   void sendToolGrasp();
   void failToolIfTimedOut();
+  void logGraspPoseState(const char* context);
 
   using MoveToPoseAction = action_of_motion_interfaces::action::MoveToPose;
   using MoveToPoseGoalHandle = rclcpp_action::ClientGoalHandle<MoveToPoseAction>;

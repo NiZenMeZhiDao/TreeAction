@@ -525,7 +525,8 @@ BT 引擎收到后解析 JSON → 填充 `Segment` 结构体 → 入队 `Segment
 |------|--------|------|
 | `move_target.x/y` | 全局世界坐标 | m |
 | `move_target.yaw` | 全局世界朝向 | rad |
-| `max_speed` | — | m/s |
+| `max_vel` (`max_speed` legacy alias) | — | m/s |
+| `max_wz` | — | rad/s |
 | `climb_height` / `height` | — | mm |
 | `timeout_sec` | — | s |
 | 悬挂高度 | — | mm |

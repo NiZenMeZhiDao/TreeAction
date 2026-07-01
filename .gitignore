@@ -31,3 +31,6 @@ Thumbs.db
 
 # PID debug images
 output/
+
+# rosbag
+rosbag*/

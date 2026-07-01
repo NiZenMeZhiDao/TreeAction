@@ -160,6 +160,9 @@ class AresToolNode : public rclcpp::Node {
 			usb_.close();
 			res->message =
 				"USB transfer failed for action '" + req->action + "'";
+			if (!r.detail.empty()) {
+				res->message += ": " + r.detail;
+			}
 			RCLCPP_ERROR(get_logger(), "%s", res->message.c_str());
 		}
 	}

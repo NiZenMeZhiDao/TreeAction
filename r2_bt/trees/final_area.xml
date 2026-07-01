@@ -38,6 +38,8 @@
                              target_y="{final_target_y}"
                              target_yaw="{final_target_yaw}"
                              pid_profile="{final_target_pid_profile}"
+                             max_vel="{final_target_max_vel}"
+                             max_wz="{final_target_max_wz}"
                              timeout_sec="{final_target_timeout_sec}"
                              message="{last_error}"/>
 
@@ -46,6 +48,8 @@
                         target_y="{final_target_y}"
                         target_yaw="{final_target_yaw}"
                         pid_profile="{final_target_pid_profile}"
+                        max_vel="{final_target_max_vel}"
+                        max_wz="{final_target_max_wz}"
                         timeout_sec="{final_target_timeout_sec}"
                         error_msg="{last_error}"/>
           </RetrySegment>
@@ -112,6 +116,8 @@
                         target_y="{final_standby_target_y}"
                         target_yaw="{final_standby_target_yaw}"
                         pid_profile="{final_standby_pid_profile}"
+                        max_vel="{final_standby_max_vel}"
+                        max_wz="{final_standby_max_wz}"
                         timeout_sec="{final_standby_timeout_sec}"
                         error_msg="{last_error}"/>
           </RetrySegment>

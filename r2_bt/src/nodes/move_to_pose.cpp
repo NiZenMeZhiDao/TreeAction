@@ -24,6 +24,10 @@ BT::PortsList MoveToPose::providedPorts()
     BT::InputPort<double>("target_yaw", "Target yaw angle in map frame (rad)"),
     BT::InputPort<int>("pid_profile", MoveToPoseAction::Goal::PID_PROFILE_FAST,
                        "PID profile: 0=slow, 1=fast"),
+    BT::InputPort<double>("max_vel", 0.0,
+                          "Per-goal max linear speed override in m/s; <=0 uses PID profile"),
+    BT::InputPort<double>("max_wz", 0.0,
+                          "Per-goal max yaw angular speed override in rad/s; <=0 uses PID profile"),
     BT::InputPort<double>("timeout_sec", 30.0, "Abort action after this many seconds"),
     BT::InputPort<std::string>("frame_id", "map", "Coordinate frame for target pose"),
     BT::OutputPort<std::string>("error_msg", "Error description on failure"),
@@ -61,6 +65,8 @@ BT::NodeStatus MoveToPose::onStart()
   auto res_yaw = getInput<double>("target_yaw");
   const int pid_profile =
       getInput<int>("pid_profile").value_or(MoveToPoseAction::Goal::PID_PROFILE_FAST);
+  const double max_vel = getInput<double>("max_vel").value_or(0.0);
+  const double max_wz = getInput<double>("max_wz").value_or(0.0);
   timeout_sec_ = getInput<double>("timeout_sec").value_or(30.0);
 
   if (!res_x || !res_y || !res_yaw)
@@ -89,12 +95,26 @@ BT::NodeStatus MoveToPose::onStart()
     RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
     return BT::NodeStatus::FAILURE;
   }
+  if (!std::isfinite(max_vel) || max_vel < 0.0)
+  {
+    error_msg_ = "Invalid max_vel for MoveToPose; expected finite value >= 0";
+    RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!std::isfinite(max_wz) || max_wz < 0.0)
+  {
+    error_msg_ = "Invalid max_wz for MoveToPose; expected finite value >= 0";
+    RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
+    return BT::NodeStatus::FAILURE;
+  }
 
   auto goal = MoveToPoseAction::Goal();
   goal.x = target_x;
   goal.y = target_y;
   goal.yaw_deg = target_yaw * 180.0 / M_PI;
   goal.pid_profile = static_cast<uint8_t>(pid_profile);
+  goal.max_vel = max_vel;
+  goal.max_wz = max_wz;
 
   if (!action_client_)
   {
@@ -151,9 +171,9 @@ BT::NodeStatus MoveToPose::onStart()
 
   RCLCPP_INFO(node_->get_logger(),
 	              "[MoveToPose] goal sent: x=%.3f y=%.3f yaw_deg=%.1f "
-	              "pid_profile=%u frame=%s",
+	              "pid_profile=%u max_vel=%.3f max_wz=%.3f frame=%s",
 	              target_x, target_y, goal.yaw_deg, goal.pid_profile,
-	              frame_id.c_str());
+	              goal.max_vel, goal.max_wz, frame_id.c_str());
 
   return BT::NodeStatus::RUNNING;
 }

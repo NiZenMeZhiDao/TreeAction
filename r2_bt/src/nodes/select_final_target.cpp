@@ -21,6 +21,8 @@ BT::PortsList SelectFinalTarget::providedPorts()
     BT::OutputPort<double>("target_y", "MoveToPose target y"),
     BT::OutputPort<double>("target_yaw", "MoveToPose target yaw"),
     BT::OutputPort<int>("pid_profile", "MoveToPose PID profile"),
+    BT::OutputPort<double>("max_vel", "MoveToPose max linear speed override"),
+    BT::OutputPort<double>("max_wz", "MoveToPose max yaw angular speed override"),
     BT::OutputPort<double>("timeout_sec", "MoveToPose timeout"),
     BT::OutputPort<std::string>("message", "Status or error message"),
   };
@@ -55,6 +57,8 @@ BT::NodeStatus SelectFinalTarget::tick()
   double target_x = 0.0;
   double target_y = 0.0;
   double target_yaw = 0.0;
+  double max_vel = 0.0;
+  double max_wz = 0.0;
   double timeout_sec = 0.0;
   int pid_profile = 0;
   std::string error;
@@ -69,6 +73,14 @@ BT::NodeStatus SelectFinalTarget::tick()
     config().blackboard->set("last_error", error);
     return BT::NodeStatus::FAILURE;
   }
+  if (!config().blackboard->get(prefix + "max_vel", max_vel))
+  {
+    max_vel = 0.0;
+  }
+  if (!config().blackboard->get(prefix + "max_wz", max_wz))
+  {
+    max_wz = 0.0;
+  }
 
   setOutput("layer", layer);
   setOutput("column", column);
@@ -77,6 +89,8 @@ BT::NodeStatus SelectFinalTarget::tick()
   setOutput("target_y", target_y);
   setOutput("target_yaw", target_yaw);
   setOutput("pid_profile", pid_profile);
+  setOutput("max_vel", max_vel);
+  setOutput("max_wz", max_wz);
   setOutput("timeout_sec", timeout_sec);
 
   std::ostringstream oss;

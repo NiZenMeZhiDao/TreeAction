@@ -175,12 +175,22 @@ BT::NodeStatus MoveThroughFinalWaypoints::send_current_goal()
   {
     return finish_failed_attempt("Invalid pid_profile for final waypoint");
   }
+  if (!std::isfinite(waypoint.max_vel) || waypoint.max_vel < 0.0)
+  {
+    return finish_failed_attempt("Invalid max_vel for final waypoint");
+  }
+  if (!std::isfinite(waypoint.max_wz) || waypoint.max_wz < 0.0)
+  {
+    return finish_failed_attempt("Invalid max_wz for final waypoint");
+  }
 
   auto goal = MoveToPoseAction::Goal();
   goal.x = waypoint.target_x;
   goal.y = waypoint.target_y;
   goal.yaw_deg = waypoint.target_yaw * 180.0 / M_PI;
   goal.pid_profile = static_cast<uint8_t>(waypoint.pid_profile);
+  goal.max_vel = waypoint.max_vel;
+  goal.max_wz = waypoint.max_wz;
   const bool use_handoff =
       handoff_distance_ > 0.0 &&
       waypoint_index_ < static_cast<std::size_t>(handoff_count_);
@@ -224,12 +234,12 @@ BT::NodeStatus MoveThroughFinalWaypoints::send_current_goal()
   action_client_->async_send_goal(goal, send_goal_options);
   RCLCPP_INFO(node_->get_logger(),
               "[MoveThroughFinalWaypoints] wp%zu/%zu attempt %d/%d: "
-              "x=%.3f y=%.3f yaw_deg=%.1f pid=%u timeout=%.1f "
+              "x=%.3f y=%.3f yaw_deg=%.1f pid=%u max_vel=%.3f max_wz=%.3f timeout=%.1f "
               "handoff=%.3f",
               waypoint_index_ + 1, waypoints_->size(),
               attempt_, retry_attempts_,
               waypoint.target_x, waypoint.target_y, goal.yaw_deg,
-              goal.pid_profile, waypoint.timeout_sec,
+              goal.pid_profile, goal.max_vel, goal.max_wz, waypoint.timeout_sec,
               use_handoff ? handoff_distance_ : 0.0);
   return BT::NodeStatus::RUNNING;
 }

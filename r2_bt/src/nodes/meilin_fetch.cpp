@@ -73,7 +73,11 @@ void MeilinFetch::sendMoveToPoseGoal(double x, double y, double yaw_rad,
   goal.x = x;
   goal.y = y;
   goal.yaw_deg = yaw_rad * 180.0 / M_PI;
-  goal.pid_profile = MoveToPoseAction::Goal::PID_PROFILE_SLOW;
+  const auto cfg = config().blackboard->get<MeilinConfigPtr>("meilin_config");
+  const auto motion = cfg ? cfg->fetch_motion : MotionConfig{0, 0.0, 0.0, 30.0};
+  goal.pid_profile = static_cast<uint8_t>(motion.pid_profile);
+  goal.max_vel = motion.max_vel;
+  goal.max_wz = motion.max_wz;
 
   auto opts = rclcpp_action::Client<MoveToPoseAction>::SendGoalOptions();
   opts.goal_response_callback =
@@ -109,8 +113,10 @@ void MeilinFetch::sendMoveToPoseGoal(double x, double y, double yaw_rad,
 
   align_client_->async_send_goal(goal, opts);
   RCLCPP_INFO(node_->get_logger(),
-              "[Fetch] >>> MoveToPose(%s): x=%.3f y=%.3f yaw=%.1f deg",
-              label.c_str(), goal.x, goal.y, goal.yaw_deg);
+              "[Fetch] >>> MoveToPose(%s): x=%.3f y=%.3f yaw=%.1f deg "
+              "pid=%u max_vel=%.3f max_wz=%.3f",
+              label.c_str(), goal.x, goal.y, goal.yaw_deg,
+              goal.pid_profile, goal.max_vel, goal.max_wz);
 }
 
 bool MeilinFetch::isAlignDone() const
@@ -126,7 +132,7 @@ bool MeilinFetch::isAlignFailed() const
 void MeilinFetch::failAlignIfTimedOut()
 {
   const auto cfg = config().blackboard->get<MeilinConfigPtr>("meilin_config");
-  const double timeout_sec = cfg ? cfg->align_timeout_sec : 30.0;
+  const double timeout_sec = cfg ? cfg->fetch_motion.timeout_sec : 30.0;
   if (timeout_sec <= 0.0)
   {
     return;
@@ -248,6 +254,69 @@ bool MeilinFetch::isHeightDone() const
 bool MeilinFetch::isHeightFailed() const
 {
   return height_state_ == ActionState::FAILED;
+}
+
+void MeilinFetch::logGraspPoseState(const char* context)
+{
+  if (!node_)
+  {
+    return;
+  }
+
+  bool pose_received = false;
+  if (!config().blackboard->get("meilin_pose_received", pose_received))
+  {
+    pose_received = false;
+  }
+
+  const double target_yaw_deg = target_yaw_ * 180.0 / M_PI;
+  if (!pose_received)
+  {
+    RCLCPP_WARN(node_->get_logger(),
+                "[Fetch] grasp_pose_check[%s]: target=(%.3f,%.3f,%.1fdeg) "
+                "current_pose=unavailable grid=(%d,%d)->KFS(%d,%d)",
+                context, grasp_x_, grasp_y_, target_yaw_deg,
+                current_row_, current_col_, kfs_row_, kfs_col_);
+    return;
+  }
+
+  double pose_x = 0.0;
+  double pose_y = 0.0;
+  double pose_yaw = 0.0;
+  double last_update_sec = 0.0;
+  std::string frame_id;
+  const bool pose_fields_available =
+      config().blackboard->get("meilin_pose_x", pose_x) &&
+      config().blackboard->get("meilin_pose_y", pose_y) &&
+      config().blackboard->get("meilin_pose_yaw", pose_yaw) &&
+      config().blackboard->get("meilin_pose_last_update_sec", last_update_sec) &&
+      config().blackboard->get("meilin_pose_frame_id", frame_id);
+  if (!pose_fields_available)
+  {
+    RCLCPP_WARN(node_->get_logger(),
+                "[Fetch] grasp_pose_check[%s]: target=(%.3f,%.3f,%.1fdeg) "
+                "current_pose=incomplete grid=(%d,%d)->KFS(%d,%d)",
+                context, grasp_x_, grasp_y_, target_yaw_deg,
+                current_row_, current_col_, kfs_row_, kfs_col_);
+    return;
+  }
+
+  const double dx = pose_x - grasp_x_;
+  const double dy = pose_y - grasp_y_;
+  const double dist = std::hypot(dx, dy);
+  const double yaw_error =
+      meilin_normalize_angle(pose_yaw - target_yaw_) * 180.0 / M_PI;
+  const double age_sec = node_->now().seconds() - last_update_sec;
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[Fetch] grasp_pose_check[%s]: target=(%.3f,%.3f,%.1fdeg) "
+              "current=(%.3f,%.3f,%.1fdeg) err=(dx=%.3f,dy=%.3f,dist=%.3f,"
+              "yaw=%.1fdeg) frame=%s age=%.3fs grid=(%d,%d)->KFS(%d,%d)",
+              context, grasp_x_, grasp_y_, target_yaw_deg,
+              pose_x, pose_y, pose_yaw * 180.0 / M_PI,
+              dx, dy, dist, yaw_error,
+              frame_id.empty() ? "(empty)" : frame_id.c_str(), age_sec,
+              current_row_, current_col_, kfs_row_, kfs_col_);
 }
 
 void MeilinFetch::sendToolGrasp()
@@ -408,6 +477,7 @@ BT::NodeStatus MeilinFetch::onStart()
               grasp_x_, grasp_y_, target_yaw_ * 180.0 / M_PI,
               single_axis_mode_ ? "single_axis" : "omni",
               height_diff_);
+  logGraspPoseState("planned");
 
   return drive();
 }
@@ -546,6 +616,7 @@ BT::NodeStatus MeilinFetch::drive()
     case Phase::START_TOOL:
     {
       phase_ = Phase::WAIT_TOOL;
+      logGraspPoseState("before_arm_grasp");
       sendToolGrasp();
       return BT::NodeStatus::RUNNING;
     }

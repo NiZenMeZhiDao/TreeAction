@@ -89,7 +89,11 @@ void MeilinMove::sendMoveToPoseGoal(double x, double y, double yaw_rad)
   goal.x = x;
   goal.y = y;
   goal.yaw_deg = yaw_rad * 180.0 / M_PI;
-  goal.pid_profile = MoveToPoseAction::Goal::PID_PROFILE_SLOW;
+  const auto cfg = config().blackboard->get<MeilinConfigPtr>("meilin_config");
+  const auto motion = cfg ? cfg->move_motion : MotionConfig{0, 0.0, 0.0, 30.0};
+  goal.pid_profile = static_cast<uint8_t>(motion.pid_profile);
+  goal.max_vel = motion.max_vel;
+  goal.max_wz = motion.max_wz;
 
   auto opts = rclcpp_action::Client<MoveToPoseAction>::SendGoalOptions();
   opts.goal_response_callback =
@@ -151,14 +155,16 @@ void MeilinMove::sendMoveToPoseGoal(double x, double y, double yaw_rad)
 
   move_client_->async_send_goal(goal, opts);
   RCLCPP_INFO(node_->get_logger(),
-              "[Move] >>> /move_to_pose: x=%.3f y=%.3f yaw=%.1f deg",
-              goal.x, goal.y, goal.yaw_deg);
+              "[Move] >>> /move_to_pose: x=%.3f y=%.3f yaw=%.1f deg "
+              "pid=%u max_vel=%.3f max_wz=%.3f",
+              goal.x, goal.y, goal.yaw_deg,
+              goal.pid_profile, goal.max_vel, goal.max_wz);
 }
 
 void MeilinMove::failMoveToPoseIfTimedOut()
 {
   const auto cfg = config().blackboard->get<MeilinConfigPtr>("meilin_config");
-  const double timeout_sec = cfg ? cfg->align_timeout_sec : 30.0;
+  const double timeout_sec = cfg ? cfg->move_motion.timeout_sec : 30.0;
   if (timeout_sec <= 0.0)
   {
     return;

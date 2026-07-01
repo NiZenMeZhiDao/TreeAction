@@ -129,7 +129,36 @@ private:
 
         if (!protocol_.send_sync(id, payload.data(), payload.size()))
         {
-            RCLCPP_ERROR(this->get_logger(), "Failed to TX passthrough data. ID: 0x%04X", id);
+            log_tx_failure_throttled(id);
+        }
+    }
+
+    void log_tx_failure_throttled(uint16_t id)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        auto& state = tx_failure_log_state_[id];
+        ++state.failure_count;
+
+        if (state.last_log.time_since_epoch().count() != 0 &&
+            now - state.last_log < 1s)
+        {
+            return;
+        }
+
+        const size_t failures = state.failure_count;
+        state.failure_count = 0;
+        state.last_log = now;
+        if (failures > 1)
+        {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Failed to TX passthrough data. ID: 0x%04X (%zu failures in last 1s)",
+                         id, failures);
+        }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Failed to TX passthrough data. ID: 0x%04X",
+                         id);
         }
     }
 
@@ -223,6 +252,13 @@ private:
 
     // 记录长度的字典（用于日志去重）
     std::unordered_map<uint16_t, size_t> tx_known_lengths_;
+
+    struct TxFailureLogState
+    {
+        std::chrono::steady_clock::time_point last_log{};
+        size_t failure_count = 0;
+    };
+    std::unordered_map<uint16_t, TxFailureLogState> tx_failure_log_state_;
 
     // 异步创建相关
     std::mutex pending_mutex_;

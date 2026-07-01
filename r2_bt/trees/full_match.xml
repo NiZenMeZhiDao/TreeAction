@@ -42,8 +42,10 @@
                       target_y="{prepare_spear_pickup_target_y}"
                       target_yaw="{prepare_spear_pickup_target_yaw}"
                       frame_id="{prepare_spear_pickup_frame_id}"
-                      pid_profile="{prepare_motion_pid_profile}"
-                      timeout_sec="{prepare_motion_timeout_sec}"
+                      pid_profile="{prepare_spear_pickup_pid_profile}"
+                      max_vel="{prepare_spear_pickup_max_vel}"
+                      max_wz="{prepare_spear_pickup_max_wz}"
+                      timeout_sec="{prepare_spear_pickup_timeout_sec}"
                       error_msg="{last_error}"/>
         </RetrySegment>
       </Sequence>
@@ -65,8 +67,10 @@
                       target_y="{prepare_dock_standby_target_y}"
                       target_yaw="{prepare_dock_standby_target_yaw}"
                       frame_id="{prepare_dock_standby_frame_id}"
-                      pid_profile="{prepare_motion_pid_profile}"
-                      timeout_sec="{prepare_motion_timeout_sec}"
+                      pid_profile="{prepare_dock_standby_pid_profile}"
+                      max_vel="{prepare_dock_standby_max_vel}"
+                      max_wz="{prepare_dock_standby_max_wz}"
+                      timeout_sec="{prepare_dock_standby_timeout_sec}"
                       error_msg="{last_error}"/>
         </RetrySegment>
 
@@ -219,6 +223,8 @@
                              target_y="{final_target_y}"
                              target_yaw="{final_target_yaw}"
                              pid_profile="{final_target_pid_profile}"
+                             max_vel="{final_target_max_vel}"
+                             max_wz="{final_target_max_wz}"
                              timeout_sec="{final_target_timeout_sec}"
                              message="{last_error}"/>
 
@@ -227,6 +233,8 @@
                         target_y="{final_target_y}"
                         target_yaw="{final_target_yaw}"
                         pid_profile="{final_target_pid_profile}"
+                        max_vel="{final_target_max_vel}"
+                        max_wz="{final_target_max_wz}"
                         timeout_sec="{final_target_timeout_sec}"
                         error_msg="{last_error}"/>
           </RetrySegment>
@@ -293,6 +301,8 @@
                         target_y="{final_standby_target_y}"
                         target_yaw="{final_standby_target_yaw}"
                         pid_profile="{final_standby_pid_profile}"
+                        max_vel="{final_standby_max_vel}"
+                        max_wz="{final_standby_max_wz}"
                         timeout_sec="{final_standby_timeout_sec}"
                         error_msg="{last_error}"/>
           </RetrySegment>
@@ -310,6 +320,8 @@
       <input_port name="target_y"/>
       <input_port name="target_yaw"/>
       <input_port name="pid_profile"/>
+      <input_port name="max_vel"/>
+      <input_port name="max_wz"/>
       <input_port name="timeout_sec"/>
       <input_port name="frame_id"/>
       <output_port name="error_msg"/>
@@ -425,6 +437,8 @@
       <output_port name="target_y"/>
       <output_port name="target_yaw"/>
       <output_port name="pid_profile"/>
+      <output_port name="max_vel"/>
+      <output_port name="max_wz"/>
       <output_port name="timeout_sec"/>
       <output_port name="message"/>
     </Action>

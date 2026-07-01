@@ -13,3 +13,6 @@
 [submodule "pick_action"]
 	path = pick_action
 	url = https://github.com/waliwuao/pick_action.git
+[submodule "r2_monitor"]
+	path = r2_monitor
+	url = https://github.com/BetterOIer/r2_monitor.git

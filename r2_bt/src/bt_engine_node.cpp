@@ -34,12 +34,14 @@
 
 #include "r2_bt/nodes/actions/ares_tool_action.hpp"
 #include "r2_bt/nodes/actions/go_to_pose.hpp"
+#include "r2_bt/nodes/actions/initial_place_kfs.hpp"
 #include "r2_bt/nodes/actions/meilin_fetch.hpp"
 #include "r2_bt/nodes/actions/meilin_move.hpp"
 #include "r2_bt/nodes/actions/meilin_move_plan.hpp"
 #include "r2_bt/nodes/actions/move_through_final_waypoints.hpp"
 #include "r2_bt/nodes/actions/move_to_pose.hpp"
 #include "r2_bt/nodes/actions/place_object_placeholder.hpp"
+#include "r2_bt/nodes/actions/place_kfs_action.hpp"
 #include "r2_bt/nodes/actions/pick_action.hpp"
 #include "r2_bt/nodes/actions/pop_next_meilin_segment.hpp"
 #include "r2_bt/nodes/actions/pop_next_segment.hpp"
@@ -102,6 +104,8 @@ public:
     declare_parameter("meilin_pose_topic", "/transformed/pose");
     declare_parameter("meilin_pose_timeout_sec", 1.0);
     declare_parameter("meilin_cell_center_tolerance", 0.15);
+    declare_parameter("meilin_entry_motion_early_success_distance", 0.3);
+    declare_parameter("meilin_entry_motion_early_success_yaw_tolerance", 0.0);
     declare_parameter("meilin_motion_mode", "single_axis");
 
     groot2_port_ = static_cast<unsigned>(get_parameter("groot2_port").as_int());
@@ -129,6 +133,8 @@ public:
     factory_.registerNodeType<r2_bt::MeilinPlanMove>("MeilinPlanMove");
     factory_.registerNodeType<r2_bt::MeilinCommitMove>("MeilinCommitMove");
     factory_.registerNodeType<r2_bt::MoveThroughFinalWaypoints>("MoveThroughFinalWaypoints");
+    factory_.registerNodeType<r2_bt::InitialPlaceKFS>("InitialPlaceKFS");
+    factory_.registerNodeType<r2_bt::PlaceKFSAction>("PlaceKFSAction");
     factory_.registerNodeType<r2_bt::PopNextSegment>("PopNextSegment");
     factory_.registerNodeType<r2_bt::PopNextMeilinSegment>("PopNextMeilinSegment");
     factory_.registerNodeType<r2_bt::SuspensionControl>("SuspensionControl");
@@ -190,6 +196,10 @@ public:
     meilin_cfg->suspension_normal_height = meilin_suspension_normal_height_;
     meilin_cfg->pose_timeout_sec = meilin_pose_timeout_sec_;
     meilin_cfg->cell_center_tolerance = meilin_cell_center_tolerance_;
+    meilin_cfg->entry_motion_early_success_distance =
+        meilin_entry_motion_early_success_distance_;
+    meilin_cfg->entry_motion_early_success_yaw_tolerance =
+        meilin_entry_motion_early_success_yaw_tolerance_;
     meilin_cfg->motion_mode = meilin_motion_mode_;
     meilin_cfg->move_motion = meilin_move_motion_;
     meilin_cfg->fetch_motion = meilin_fetch_motion_;
@@ -615,6 +625,10 @@ private:
     meilin_pose_timeout_sec_ = get_parameter("meilin_pose_timeout_sec").as_double();
     meilin_cell_center_tolerance_ =
         get_parameter("meilin_cell_center_tolerance").as_double();
+    meilin_entry_motion_early_success_distance_ =
+        get_parameter("meilin_entry_motion_early_success_distance").as_double();
+    meilin_entry_motion_early_success_yaw_tolerance_ =
+        get_parameter("meilin_entry_motion_early_success_yaw_tolerance").as_double();
     meilin_motion_mode_ = get_parameter("meilin_motion_mode").as_string();
     meilin_move_motion_.timeout_sec = meilin_default_align_timeout_;
     meilin_fetch_motion_.timeout_sec = meilin_default_align_timeout_;
@@ -677,6 +691,7 @@ private:
     {
       return;
     }
+    load_place_kfs_config(cfg["place_kfs"]);
 
     const auto prepare = cfg["prepare_area"];
     if (!prepare)
@@ -808,6 +823,12 @@ private:
         yaml_value<double>(meilin, "pose_timeout_sec", meilin_pose_timeout_sec_);
     meilin_cell_center_tolerance_ =
         yaml_value<double>(meilin, "cell_center_tolerance", meilin_cell_center_tolerance_);
+    meilin_entry_motion_early_success_distance_ =
+        yaml_value<double>(meilin, "entry_motion_early_success_distance",
+                           meilin_entry_motion_early_success_distance_);
+    meilin_entry_motion_early_success_yaw_tolerance_ =
+        yaml_value<double>(meilin, "entry_motion_early_success_yaw_tolerance",
+                           meilin_entry_motion_early_success_yaw_tolerance_);
     meilin_default_align_timeout_ =
         yaml_value<double>(meilin, "default_align_timeout", meilin_default_align_timeout_);
     meilin_default_suspension_timeout_ =
@@ -1111,6 +1132,10 @@ private:
       cfg_ptr->suspension_normal_height = meilin_suspension_normal_height_;
       cfg_ptr->pose_timeout_sec = meilin_pose_timeout_sec_;
       cfg_ptr->cell_center_tolerance = meilin_cell_center_tolerance_;
+      cfg_ptr->entry_motion_early_success_distance =
+          meilin_entry_motion_early_success_distance_;
+      cfg_ptr->entry_motion_early_success_yaw_tolerance =
+          meilin_entry_motion_early_success_yaw_tolerance_;
       cfg_ptr->motion_mode = meilin_motion_mode_;
       cfg_ptr->move_motion = meilin_move_motion_;
       cfg_ptr->fetch_motion = meilin_fetch_motion_;
@@ -1179,6 +1204,40 @@ private:
     RCLCPP_INFO(get_logger(),
                 "FinalArea chassis height publisher initialized: topic=%s",
                 topic.c_str());
+  }
+
+  void load_place_kfs_config(const YAML::Node& node)
+  {
+    const auto initial = node ? node["initial_place"] : YAML::Node{};
+    const auto prepare = node ? node["prepare_action"] : YAML::Node{};
+    const auto forward = node ? node["forward_approach"] : YAML::Node{};
+
+    blackboard_->set("place_kfs_action_name",
+                     yaml_value<std::string>(node, "action_name", "/place_kfs"));
+    blackboard_->set("place_kfs_action_timeout_sec",
+                     yaml_value<double>(node, "timeout_sec", 0.0));
+
+    blackboard_->set("place_kfs_initial_enabled",
+                     yaml_value<bool>(initial, "enabled", true));
+    blackboard_->set("place_kfs_initial_default_command",
+                     yaml_value<int>(initial, "default_command", 5));
+    blackboard_->set("place_kfs_prepare_action_name",
+                     yaml_value<std::string>(prepare, "name", "/prepare_kfs"));
+    blackboard_->set("place_kfs_prepare_first_timeout_sec",
+                     yaml_value<double>(prepare, "prepare_first_timeout_sec", 30.0));
+
+    blackboard_->set("place_kfs_forward_enabled",
+                     yaml_value<bool>(forward, "enabled", false));
+    blackboard_->set("place_kfs_forward_velocity_topic",
+                     yaml_value<std::string>(forward, "velocity_topic", "/t0x0111_pid"));
+    blackboard_->set("place_kfs_forward_speed_mps",
+                     yaml_value<double>(forward, "speed_mps", 0.15));
+    blackboard_->set("place_kfs_forward_duration_sec",
+                     yaml_value<double>(forward, "duration_sec", 0.5));
+    blackboard_->set("place_kfs_forward_publish_rate_hz",
+                     yaml_value<double>(forward, "publish_rate_hz", 50.0));
+
+    RCLCPP_INFO(get_logger(), "PlaceKFS params loaded from param_config.");
   }
 
   template <typename T>
@@ -2238,6 +2297,8 @@ private:
   double meilin_suspension_normal_height_ = 30.0;  // 正常行驶悬挂高度 (mm)，即 H_INIT
   double meilin_pose_timeout_sec_ = 1.0;
   double meilin_cell_center_tolerance_ = 0.15;
+  double meilin_entry_motion_early_success_distance_ = 0.3;
+  double meilin_entry_motion_early_success_yaw_tolerance_ = 0.0;
   std::string meilin_motion_mode_ = "single_axis";
   r2_bt::MotionConfig meilin_move_motion_{0, 0.0, 0.0, 30.0};
   r2_bt::MotionConfig meilin_fetch_motion_{0, 0.0, 0.0, 30.0};

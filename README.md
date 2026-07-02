@@ -486,6 +486,8 @@ meilin_area:
   height_tolerance: 1.0
   pose_timeout_sec: 1.0
   cell_center_tolerance: 0.15
+  entry_motion_early_success_distance: 0.30
+  entry_motion_early_success_yaw_tolerance: 0.0
   move_motion: {pid_profile: 0, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}
   fetch_motion: {pid_profile: 0, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}
   default_align_timeout: 30.0
@@ -517,6 +519,9 @@ final_area:
 `max_vel` 是 MoveToPose 的单次 goal 线速度上限覆盖值，单位 m/s；不配置或配置为
 `0.0` 时沿用 `pid_profile` 的原始最大线速度。`max_wz` 是单次 goal 最大 yaw
 角速度覆盖值，单位 rad/s；不配置或配置为 `0.0` 时沿用 `pid_profile` 的原始最大角速度。
+梅林区进入第一点的 motion 可通过 `entry_motion_early_success_distance` 与
+`entry_motion_early_success_yaw_tolerance` 配置提前成功条件，单位分别为 m 与 rad；
+不配置或配置为 `0.0` 时不启用。该提前成功只结束入口这一次 MoveToPose，不结束整棵 BT。
 旧配置名 `max_speed` 仍作为 `max_vel` 的兼容别名读取。
 
 启动时通过 `param_config` 指定：

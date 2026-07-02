@@ -10,8 +10,14 @@ MoveToPose::MoveToPose(const std::string& name, const BT::NodeConfig& config)
   , goal_response_received_(false)
   , goal_accepted_(false)
   , goal_done_(false)
+  , feedback_received_(false)
+  , early_success_(false)
   , result_status_(BT::NodeStatus::FAILURE)
   , timeout_sec_(30.0)
+  , early_success_distance_(0.0)
+  , early_success_yaw_tolerance_(0.0)
+  , latest_distance_error_(0.0)
+  , latest_yaw_error_(0.0)
 {
 }
 
@@ -29,6 +35,10 @@ BT::PortsList MoveToPose::providedPorts()
     BT::InputPort<double>("max_wz", 0.0,
                           "Per-goal max yaw angular speed override in rad/s; <=0 uses PID profile"),
     BT::InputPort<double>("timeout_sec", 30.0, "Abort action after this many seconds"),
+    BT::InputPort<double>("early_success_distance", 0.0,
+                          "Return SUCCESS early when distance error is below this value"),
+    BT::InputPort<double>("early_success_yaw_tolerance", 0.0,
+                          "Return SUCCESS early when absolute yaw error is below this value"),
     BT::InputPort<std::string>("frame_id", "map", "Coordinate frame for target pose"),
     BT::OutputPort<std::string>("error_msg", "Error description on failure"),
   };
@@ -47,6 +57,8 @@ BT::NodeStatus MoveToPose::onStart()
   goal_done_ = false;
   goal_response_received_ = false;
   goal_accepted_ = false;
+  feedback_received_ = false;
+  early_success_ = false;
   result_status_ = BT::NodeStatus::FAILURE;
   error_msg_.clear();
   goal_handle_.reset();
@@ -68,6 +80,12 @@ BT::NodeStatus MoveToPose::onStart()
   const double max_vel = getInput<double>("max_vel").value_or(0.0);
   const double max_wz = getInput<double>("max_wz").value_or(0.0);
   timeout_sec_ = getInput<double>("timeout_sec").value_or(30.0);
+  early_success_distance_ =
+      getInput<double>("early_success_distance").value_or(0.0);
+  early_success_yaw_tolerance_ =
+      getInput<double>("early_success_yaw_tolerance").value_or(0.0);
+  latest_distance_error_ = 0.0;
+  latest_yaw_error_ = 0.0;
 
   if (!res_x || !res_y || !res_yaw)
   {
@@ -104,6 +122,19 @@ BT::NodeStatus MoveToPose::onStart()
   if (!std::isfinite(max_wz) || max_wz < 0.0)
   {
     error_msg_ = "Invalid max_wz for MoveToPose; expected finite value >= 0";
+    RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!std::isfinite(early_success_distance_) || early_success_distance_ < 0.0)
+  {
+    error_msg_ = "Invalid early_success_distance for MoveToPose; expected finite value >= 0";
+    RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!std::isfinite(early_success_yaw_tolerance_) ||
+      early_success_yaw_tolerance_ < 0.0)
+  {
+    error_msg_ = "Invalid early_success_yaw_tolerance for MoveToPose; expected finite value >= 0";
     RCLCPP_ERROR(node_->get_logger(), "[MoveToPose] %s", error_msg_.c_str());
     return BT::NodeStatus::FAILURE;
   }
@@ -153,6 +184,10 @@ BT::NodeStatus MoveToPose::onStart()
   send_goal_options.result_callback =
     [this](const GoalHandle::WrappedResult& result) {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (early_success_)
+      {
+        return;
+      }
       goal_done_ = true;
       result_status_ = (result.code == rclcpp_action::ResultCode::SUCCEEDED &&
                         result.result && result.result->success)
@@ -163,6 +198,18 @@ BT::NodeStatus MoveToPose::onStart()
         error_msg_ = result.result->message;
       }
     };
+  send_goal_options.feedback_callback =
+    [this](std::shared_ptr<GoalHandle>,
+           const std::shared_ptr<const MoveToPoseAction::Feedback> feedback) {
+      if (!feedback)
+      {
+        return;
+      }
+      std::lock_guard<std::mutex> lock(mutex_);
+      feedback_received_ = true;
+      latest_distance_error_ = feedback->distance_error;
+      latest_yaw_error_ = std::abs(feedback->yaw_error_deg) * M_PI / 180.0;
+    };
 
   start_time_ = std::chrono::steady_clock::now();
   config().blackboard->set("active_action", std::string{"MoveToPose"});
@@ -171,9 +218,11 @@ BT::NodeStatus MoveToPose::onStart()
 
   RCLCPP_INFO(node_->get_logger(),
 	              "[MoveToPose] goal sent: x=%.3f y=%.3f yaw_deg=%.1f "
-	              "pid_profile=%u max_vel=%.3f max_wz=%.3f frame=%s",
+	              "pid_profile=%u max_vel=%.3f max_wz=%.3f frame=%s "
+	              "early=(dist<=%.3f yaw<=%.3f)",
 	              target_x, target_y, goal.yaw_deg, goal.pid_profile,
-	              goal.max_vel, goal.max_wz, frame_id.c_str());
+	              goal.max_vel, goal.max_wz, frame_id.c_str(),
+	              early_success_distance_, early_success_yaw_tolerance_);
 
   return BT::NodeStatus::RUNNING;
 }
@@ -207,6 +256,27 @@ BT::NodeStatus MoveToPose::onRunning()
 
   if (!goal_done_)
   {
+    const bool distance_triggered =
+        early_success_distance_ > 0.0 &&
+        latest_distance_error_ <= early_success_distance_;
+    const bool yaw_triggered =
+        early_success_yaw_tolerance_ > 0.0 &&
+        latest_yaw_error_ <= early_success_yaw_tolerance_;
+    if (feedback_received_ && goal_handle_ && (distance_triggered || yaw_triggered))
+    {
+      action_client_->async_cancel_goal(goal_handle_);
+      early_success_ = true;
+      goal_done_ = true;
+      result_status_ = BT::NodeStatus::SUCCESS;
+      error_msg_.clear();
+      setOutput("error_msg", std::string{});
+      config().blackboard->set("execution_state", std::string{"ACTION_SUCCESS"});
+      RCLCPP_INFO(node_->get_logger(),
+                  "[MoveToPose] early success by %s: distance_error=%.3f yaw_error=%.3f",
+                  distance_triggered ? "distance" : "yaw",
+                  latest_distance_error_, latest_yaw_error_);
+      return BT::NodeStatus::SUCCESS;
+    }
     return BT::NodeStatus::RUNNING;
   }
   config().blackboard->set(

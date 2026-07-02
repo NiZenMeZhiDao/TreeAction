@@ -3,7 +3,7 @@
   meilin_stage.xml - 梅林赛段行为树
 
   树按 Web/Planner 的 move/fetch 队列执行梅林区流程。
-  每个 move 显式执行：计算参数 → StepMotionControl(需要时) → MoveToPose 到目标格中心 → 更新状态。
+  每个 move 显式执行：计算参数 → MoveToPose 到目标格中心(入口可提前 success) → StepMotionControl(需要时) → 更新状态。
   每个 fetch 仍作为独立动作节点，内部处理抓取前平移、必要高度调整与 tool/arm 抓取。
 -->
 <root BTCPP_format="4" main_tree_to_execute="MeilinStage">
@@ -41,9 +41,22 @@
                             step_correction_y="{move_step_correction_y}"
                             step_correction_yaw_deg="{move_step_correction_yaw_deg}"
                             step_timeout_sec="{move_step_timeout_sec}"
+                            move_early_success_distance="{move_early_success_distance}"
+                            move_early_success_yaw_tolerance="{move_early_success_yaw_tolerance}"
                             message="{last_error}"/>
 
-            <StepMotionControl name="MEILIN_02_STEP_IF_HEIGHT_CHANGED"
+            <MoveToPose name="MEILIN_02_MOVE_TO_TARGET_CENTER"
+                        enabled="{move_center_motion_needed}"
+                        target_x="{move_target_x}"
+                        target_y="{move_target_y}"
+                        target_yaw="{move_target_yaw}"
+                        pid_profile="0"
+                        timeout_sec="{move_align_timeout_sec}"
+                        early_success_distance="{move_early_success_distance}"
+                        early_success_yaw_tolerance="{move_early_success_yaw_tolerance}"
+                        error_msg="{last_error}"/>
+
+            <StepMotionControl name="MEILIN_03_STEP_IF_HEIGHT_CHANGED"
                                enabled="{move_step_needed}"
                                mode="{move_step_mode}"
                                direction="{move_step_direction}"
@@ -53,15 +66,6 @@
                                correction_yaw_deg="{move_step_correction_yaw_deg}"
                                timeout_sec="{move_step_timeout_sec}"
                                message="{last_error}"/>
-
-            <MoveToPose name="MEILIN_03_MOVE_TO_TARGET_CENTER"
-                        enabled="{move_center_motion_needed}"
-                        target_x="{move_target_x}"
-                        target_y="{move_target_y}"
-                        target_yaw="{move_target_yaw}"
-                        pid_profile="0"
-                        timeout_sec="{move_align_timeout_sec}"
-                        error_msg="{last_error}"/>
 
             <MeilinCommitMove name="MEILIN_04_COMMIT_MOVE_STATE"
                               move_row="{move_row}"

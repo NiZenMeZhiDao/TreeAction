@@ -25,6 +25,7 @@ find_package(yaml-cpp REQUIRED)
 #------------------------------------------------------------
 add_library(r2_bt_nodes SHARED
   src/nodes/ares_tool_action.cpp
+  src/nodes/initial_place_kfs.cpp
   src/nodes/is_segment_type.cpp
   src/nodes/is_string_empty.cpp
   src/nodes/is_string_non_empty.cpp
@@ -42,6 +43,7 @@ add_library(r2_bt_nodes SHARED
   src/nodes/for_each_segment.cpp
   src/nodes/go_to_pose.cpp
   src/nodes/place_object_placeholder.cpp
+  src/nodes/place_kfs_action.cpp
   src/nodes/pick_action.cpp
   src/nodes/select_final_target.cpp
   src/nodes/suspension_control.cpp

@@ -55,6 +55,8 @@ meilin_area:
   height_tolerance: 1.0
   pose_timeout_sec: 1.0
   cell_center_tolerance: 0.15
+  entry_motion_early_success_distance: 0.30
+  entry_motion_early_success_yaw_tolerance: 0.0
   motion_mode: "single_axis"
   move_motion:
     pid_profile: 0
@@ -120,3 +122,31 @@ final_area:
     3_left: {target_x: 9.76, target_y: 1.20, target_yaw: 1.5708, motion: {pid_profile: 1, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}}
     3_mid: {target_x: 10.30, target_y: 1.20, target_yaw: 1.5708, motion: {pid_profile: 1, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}}
     3_right: {target_x: 10.84, target_y: 1.20, target_yaw: 1.5708, motion: {pid_profile: 1, max_vel: 0.0, max_wz: 0.0, timeout_sec: 30.0}}
+
+place_kfs:
+  action_name: "/place_kfs"
+  timeout_sec: 0.0
+  deck_topic: "/aruco_comm/tx_id"
+  command_timeout_sec: 0.0
+  place_signal_timeout_sec: 0.0
+  initial_place:
+    enabled: true
+    default_command: 5
+  prepare_action:
+    name: "/prepare_kfs"
+    prepare_first_timeout_sec: 30.0
+    fetch_kfs_timeout_sec: 30.0
+    prepare_second_timeout_sec: 30.0
+  forward_approach:
+    enabled: false
+    velocity_topic: "/t0x0111_pid"
+    speed_mps: 0.15
+    duration_sec: 0.5
+    publish_rate_hz: 50.0
+  place_action:
+    service_name: "/ares_tool_node/tool_action"
+    mid_action: "arm_place_mid"
+    high_action: "arm_place_high"
+    timeout_sec: 30.0
+    retry_attempts: 3
+    args: [0.0, 0.0, 0.0, 0.0]

@@ -162,6 +162,9 @@ def generate_launch_description():
     meilin_or_full_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'), "' in ['minimal_meilin', 'capacity_1', 'full']"
     ])
+    final_or_full_profile = PythonExpression([
+        "'", LaunchConfiguration('startup_profile'), "' in ['final', 'full']"
+    ])
     meilin_web_profile = PythonExpression([
         "'", LaunchConfiguration('startup_profile'),
         "' in ['minimal_meilin', 'capacity_1', 'full'] and '",
@@ -241,8 +244,21 @@ def generate_launch_description():
             'port_name': LaunchConfiguration('pick_lidar_port'),
             'use_synthetic': LaunchConfiguration('pick_use_synthetic'),
             'expected_count': LaunchConfiguration('pick_expected_count'),
+            'relocation_topic': LaunchConfiguration('relocation_topic'),
         }.items(),
         condition=IfCondition(prepare_or_full_profile),
+    )
+
+    place_kfs_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('place_kfs'),
+            'launch',
+            'place_kfs.launch.py',
+        ])),
+        launch_arguments={
+            'param_config': LaunchConfiguration('param_config'),
+        }.items(),
+        condition=IfCondition(final_or_full_profile),
     )
 
     multi_serial_node = Node(
@@ -385,6 +401,9 @@ def generate_launch_description():
         multi_serial_node,
         LogInfo(msg='=== R2 autonomy bringup: pick_action pipeline ==='),
         pick_action_launch,
+        LogInfo(msg='=== R2 autonomy bringup: place_kfs action ===',
+                condition=IfCondition(final_or_full_profile)),
+        place_kfs_launch,
         LogInfo(msg='=== R2 autonomy bringup: action servers ==='),
         motion_action_node,
         step_motion_action_server,

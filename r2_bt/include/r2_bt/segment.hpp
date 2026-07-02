@@ -37,6 +37,8 @@ struct MeilinConfig
   double suspension_normal_height = 30.0;  // 正常行驶悬挂高度 (mm)，即 H_INIT
   double pose_timeout_sec = 1.0;
   double cell_center_tolerance = 0.15;
+  double entry_motion_early_success_distance = 0.3;
+  double entry_motion_early_success_yaw_tolerance = 0.0;
   std::string motion_mode = "single_axis";
   MotionConfig move_motion{0, 0.0, 0.0, 30.0};
   MotionConfig fetch_motion{0, 0.0, 0.0, 30.0};

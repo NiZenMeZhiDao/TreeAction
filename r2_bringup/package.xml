@@ -11,6 +11,7 @@
   <depend>r2_hardware</depend>
   <depend>action_of_motion</depend>
   <depend>pick_action</depend>
+  <depend>place_kfs</depend>
   <depend>ares_tool_control</depend>
   <depend>ares_usb</depend>
   <depend>multi_serial_sensor</depend>

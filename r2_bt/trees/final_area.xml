@@ -21,107 +21,24 @@
                                    message="{last_error}"/>
       </Sequence>
 
+      <InitialPlaceKFS enabled="{place_kfs_initial_enabled}"
+                       deck_topic="{final_deck_topic}"
+                       default_command="{place_kfs_initial_default_command}"
+                       prepare_action_name="{place_kfs_prepare_action_name}"
+                       prepare_timeout_sec="{place_kfs_prepare_first_timeout_sec}"
+                       forward_enabled="{place_kfs_forward_enabled}"
+                       forward_velocity_topic="{place_kfs_forward_velocity_topic}"
+                       forward_speed_mps="{place_kfs_forward_speed_mps}"
+                       forward_duration_sec="{place_kfs_forward_duration_sec}"
+                       forward_publish_rate_hz="{place_kfs_forward_publish_rate_hz}"
+                       message="{last_error}"/>
+
       <Repeat num_cycles="-1">
         <Sequence name="FINAL_LOOP">
-
-          <WaitForIntSignal signal_topic="{final_deck_topic}"
-                            expected_values="1,2,3,4,5,6"
-                            timeout_sec="{final_command_timeout_sec}"
-                            received_value="{final_command}"
-                            message="{last_error}"/>
-
-          <SelectFinalTarget command="{final_command}"
-                             layer="{final_layer}"
-                             column="{final_column}"
-                             flow="{final_flow}"
-                             target_x="{final_target_x}"
-                             target_y="{final_target_y}"
-                             target_yaw="{final_target_yaw}"
-                             pid_profile="{final_target_pid_profile}"
-                             max_vel="{final_target_max_vel}"
-                             max_wz="{final_target_max_wz}"
-                             timeout_sec="{final_target_timeout_sec}"
-                             message="{last_error}"/>
-
-          <RetrySegment num_attempts="3">
-            <MoveToPose target_x="{final_target_x}"
-                        target_y="{final_target_y}"
-                        target_yaw="{final_target_yaw}"
-                        pid_profile="{final_target_pid_profile}"
-                        max_vel="{final_target_max_vel}"
-                        max_wz="{final_target_max_wz}"
-                        timeout_sec="{final_target_timeout_sec}"
-                        error_msg="{last_error}"/>
-          </RetrySegment>
-
-          <SwitchSegmentType segment_type="{final_flow}">
-
-            <Sequence name="LAYER2">
-              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
-                <AresToolAction action="{final_place_mid_action}"
-                                service_name="{final_place_action_service_name}"
-                                timeout_sec="{final_place_action_timeout_sec}"
-                                arg0="{final_place_action_arg0}"
-                                arg1="{final_place_action_arg1}"
-                                arg2="{final_place_action_arg2}"
-                                arg3="{final_place_action_arg3}"
-                                message="{last_error}"/>
-              </RetrySegment>
-              <WaitForIntSignal signal_topic="{final_deck_topic}"
-                                expected_value="{final_place_signal}"
-                                timeout_sec="{final_place_signal_timeout_sec}"
-                                received_value="{final_place_received_signal}"
-                                message="{last_error}"/>
-              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
-                <AresToolAction action="{final_place_mid_action}"
-                                service_name="{final_place_action_service_name}"
-                                timeout_sec="{final_place_action_timeout_sec}"
-                                arg0="{final_place_action_arg0}"
-                                arg1="{final_place_action_arg1}"
-                                arg2="{final_place_action_arg2}"
-                                arg3="{final_place_action_arg3}"
-                                message="{last_error}"/>
-              </RetrySegment>
-            </Sequence>
-
-            <Sequence name="LAYER3">
-              <WaitForIntSignal signal_topic="{final_deck_topic}"
-                                expected_value="{final_place_signal}"
-                                timeout_sec="{final_place_signal_timeout_sec}"
-                                received_value="{final_place_received_signal}"
-                                message="{last_error}"/>
-              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
-                <AresToolAction action="{final_place_high_action}"
-                                service_name="{final_place_action_service_name}"
-                                timeout_sec="{final_place_action_timeout_sec}"
-                                arg0="{final_place_action_arg0}"
-                                arg1="{final_place_action_arg1}"
-                                arg2="{final_place_action_arg2}"
-                                arg3="{final_place_action_arg3}"
-                                message="{last_error}"/>
-              </RetrySegment>
-            </Sequence>
-
-            <Sequence name="default">
-              <SetDebugStatus execution_state="ACTION_FAILED" active_action="FinalDispatch"
-                              last_error="Unsupported final_flow"/>
-            </Sequence>
-
-          </SwitchSegmentType>
-
-          <WaitSeconds seconds="{final_post_place_wait_sec}"/>
-
-          <RetrySegment num_attempts="3">
-            <MoveToPose target_x="{final_standby_target_x}"
-                        target_y="{final_standby_target_y}"
-                        target_yaw="{final_standby_target_yaw}"
-                        pid_profile="{final_standby_pid_profile}"
-                        max_vel="{final_standby_max_vel}"
-                        max_wz="{final_standby_max_wz}"
-                        timeout_sec="{final_standby_timeout_sec}"
-                        error_msg="{last_error}"/>
-          </RetrySegment>
-
+          <PlaceKFSAction server_name="{place_kfs_action_name}"
+                          deck_command="0"
+                          timeout_sec="{place_kfs_action_timeout_sec}"
+                          message="{last_error}"/>
         </Sequence>
       </Repeat>
 

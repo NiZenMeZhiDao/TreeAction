@@ -36,6 +36,8 @@ BT::PortsList MeilinPlanMove::providedPorts()
     BT::OutputPort<double>("step_correction_y"),
     BT::OutputPort<double>("step_correction_yaw_deg"),
     BT::OutputPort<double>("step_timeout_sec"),
+    BT::OutputPort<double>("move_early_success_distance"),
+    BT::OutputPort<double>("move_early_success_yaw_tolerance"),
     BT::OutputPort<std::string>("message"),
   };
 }
@@ -130,9 +132,15 @@ BT::NodeStatus MeilinPlanMove::tick()
 
   const double height_diff = target_height - current_height;
   const bool same_grid = from_row == to_row && from_col == to_col;
+  const bool height_change = std::abs(height_diff) > cfg->height_tolerance;
+  const bool early_success_configured =
+      cfg->entry_motion_early_success_distance > 0.0 ||
+      cfg->entry_motion_early_success_yaw_tolerance > 0.0;
+  const bool entry_step_needed =
+      entry_move && !same_grid && height_change && early_success_configured;
   const bool step_needed =
-      !entry_move && !same_grid && std::abs(height_diff) > cfg->height_tolerance;
-  const bool center_motion_needed = !step_needed;
+      (!entry_move && !same_grid && height_change) || entry_step_needed;
+  const bool center_motion_needed = !step_needed || entry_step_needed;
 
   int step_mode = 0;
   int step_direction = 0;
@@ -202,6 +210,10 @@ BT::NodeStatus MeilinPlanMove::tick()
   setOutput("step_correction_y", correction_y);
   setOutput("step_correction_yaw_deg", correction_yaw_deg);
   setOutput("step_timeout_sec", cfg->suspension_timeout_sec);
+  setOutput("move_early_success_distance",
+            entry_step_needed ? cfg->entry_motion_early_success_distance : 0.0);
+  setOutput("move_early_success_yaw_tolerance",
+            entry_step_needed ? cfg->entry_motion_early_success_yaw_tolerance : 0.0);
   setOutput("message", std::string{});
 
   config().blackboard->set("meilin_planned_move_row", to_row);
@@ -214,11 +226,14 @@ BT::NodeStatus MeilinPlanMove::tick()
 
   RCLCPP_INFO(node_->get_logger(),
               "[MeilinPlanMove] from=(%d,%d h=%.0f) to=(%d,%d h=%.0f) "
-              "entry=%s step=%s center_motion=%s target_yaw=%.3f "
+              "entry=%s step=%s center_motion=%s early=(dist=%.3f yaw=%.3f) target_yaw=%.3f "
               "reference_yaw=%.3f pose_yaw=%.3f",
               from_row, from_col, current_height, to_row, to_col, target_height,
               entry_move ? "yes" : "no", step_needed ? "yes" : "no",
-              center_motion_needed ? "yes" : "no", yaw, reference_yaw,
+              center_motion_needed ? "yes" : "no",
+              entry_step_needed ? cfg->entry_motion_early_success_distance : 0.0,
+              entry_step_needed ? cfg->entry_motion_early_success_yaw_tolerance : 0.0,
+              yaw, reference_yaw,
               current_yaw);
 
   return BT::NodeStatus::SUCCESS;

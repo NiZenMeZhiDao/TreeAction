@@ -7,7 +7,7 @@
   架构:
     准备区 & 竞技区: 固定流程，直接读取命名 blackboard 变量，不再 PopNextSegment
     梅林区:          ForEachSegment → PopNextMeilinSegment → SwitchSegmentType，遇 PLAN_DONE 退出
-                     Move 显式执行 PlanMove → StepMotionControl → MoveToPose 到目标格中心 → CommitMove
+                     Move 显式执行 PlanMove → MoveToPose 到目标格中心 → StepMotionControl → CommitMove
                      Fetch 作为独立动作节点，内部处理抓取前平移与 tool/arm 抓取
 
   启动示例:
@@ -94,8 +94,8 @@
 
     Move:
       - MeilinPlanMove 计算入口、目标中心、step goal
-      - StepMotionControl 仅在高度变化时调用 /step_motion_control
-      - MoveToPose 到目标格中心
+      - MoveToPose 到目标格中心；入口跨高度 move 可提前 success
+      - StepMotionControl 在高度变化时调用 /step_motion_control
       - MeilinCommitMove 更新当前格/高度/yaw
 
     Fetch:
@@ -135,9 +135,22 @@
                             step_correction_y="{move_step_correction_y}"
                             step_correction_yaw_deg="{move_step_correction_yaw_deg}"
                             step_timeout_sec="{move_step_timeout_sec}"
+                            move_early_success_distance="{move_early_success_distance}"
+                            move_early_success_yaw_tolerance="{move_early_success_yaw_tolerance}"
                             message="{last_error}"/>
 
-            <StepMotionControl name="MEILIN_02_STEP_IF_HEIGHT_CHANGED"
+            <MoveToPose name="MEILIN_02_MOVE_TO_TARGET_CENTER"
+                        enabled="{move_center_motion_needed}"
+                        target_x="{move_target_x}"
+                        target_y="{move_target_y}"
+                        target_yaw="{move_target_yaw}"
+                        pid_profile="0"
+                        timeout_sec="{move_align_timeout_sec}"
+                        early_success_distance="{move_early_success_distance}"
+                        early_success_yaw_tolerance="{move_early_success_yaw_tolerance}"
+                        error_msg="{last_error}"/>
+
+            <StepMotionControl name="MEILIN_03_STEP_IF_HEIGHT_CHANGED"
                                enabled="{move_step_needed}"
                                mode="{move_step_mode}"
                                direction="{move_step_direction}"
@@ -147,15 +160,6 @@
                                correction_yaw_deg="{move_step_correction_yaw_deg}"
                                timeout_sec="{move_step_timeout_sec}"
                                message="{last_error}"/>
-
-            <MoveToPose name="MEILIN_03_MOVE_TO_TARGET_CENTER"
-                        enabled="{move_center_motion_needed}"
-                        target_x="{move_target_x}"
-                        target_y="{move_target_y}"
-                        target_yaw="{move_target_yaw}"
-                        pid_profile="0"
-                        timeout_sec="{move_align_timeout_sec}"
-                        error_msg="{last_error}"/>
 
             <MeilinCommitMove name="MEILIN_04_COMMIT_MOVE_STATE"
                               move_row="{move_row}"
@@ -206,107 +210,24 @@
                                    message="{last_error}"/>
       </Sequence>
 
+      <InitialPlaceKFS enabled="{place_kfs_initial_enabled}"
+                       deck_topic="{final_deck_topic}"
+                       default_command="{place_kfs_initial_default_command}"
+                       prepare_action_name="{place_kfs_prepare_action_name}"
+                       prepare_timeout_sec="{place_kfs_prepare_first_timeout_sec}"
+                       forward_enabled="{place_kfs_forward_enabled}"
+                       forward_velocity_topic="{place_kfs_forward_velocity_topic}"
+                       forward_speed_mps="{place_kfs_forward_speed_mps}"
+                       forward_duration_sec="{place_kfs_forward_duration_sec}"
+                       forward_publish_rate_hz="{place_kfs_forward_publish_rate_hz}"
+                       message="{last_error}"/>
+
       <Repeat num_cycles="-1">
         <Sequence name="FINAL_LOOP">
-
-          <WaitForIntSignal signal_topic="{final_deck_topic}"
-                            expected_values="1,2,3,4,5,6"
-                            timeout_sec="{final_command_timeout_sec}"
-                            received_value="{final_command}"
-                            message="{last_error}"/>
-
-          <SelectFinalTarget command="{final_command}"
-                             layer="{final_layer}"
-                             column="{final_column}"
-                             flow="{final_flow}"
-                             target_x="{final_target_x}"
-                             target_y="{final_target_y}"
-                             target_yaw="{final_target_yaw}"
-                             pid_profile="{final_target_pid_profile}"
-                             max_vel="{final_target_max_vel}"
-                             max_wz="{final_target_max_wz}"
-                             timeout_sec="{final_target_timeout_sec}"
-                             message="{last_error}"/>
-
-          <RetrySegment num_attempts="3">
-            <MoveToPose target_x="{final_target_x}"
-                        target_y="{final_target_y}"
-                        target_yaw="{final_target_yaw}"
-                        pid_profile="{final_target_pid_profile}"
-                        max_vel="{final_target_max_vel}"
-                        max_wz="{final_target_max_wz}"
-                        timeout_sec="{final_target_timeout_sec}"
-                        error_msg="{last_error}"/>
-          </RetrySegment>
-
-          <SwitchSegmentType segment_type="{final_flow}">
-
-            <Sequence name="LAYER2">
-              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
-                <AresToolAction action="{final_place_mid_action}"
-                                service_name="{final_place_action_service_name}"
-                                timeout_sec="{final_place_action_timeout_sec}"
-                                arg0="{final_place_action_arg0}"
-                                arg1="{final_place_action_arg1}"
-                                arg2="{final_place_action_arg2}"
-                                arg3="{final_place_action_arg3}"
-                                message="{last_error}"/>
-              </RetrySegment>
-              <WaitForIntSignal signal_topic="{final_deck_topic}"
-                                expected_value="{final_place_signal}"
-                                timeout_sec="{final_place_signal_timeout_sec}"
-                                received_value="{final_place_received_signal}"
-                                message="{last_error}"/>
-              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
-                <AresToolAction action="{final_place_mid_action}"
-                                service_name="{final_place_action_service_name}"
-                                timeout_sec="{final_place_action_timeout_sec}"
-                                arg0="{final_place_action_arg0}"
-                                arg1="{final_place_action_arg1}"
-                                arg2="{final_place_action_arg2}"
-                                arg3="{final_place_action_arg3}"
-                                message="{last_error}"/>
-              </RetrySegment>
-            </Sequence>
-
-            <Sequence name="LAYER3">
-              <WaitForIntSignal signal_topic="{final_deck_topic}"
-                                expected_value="{final_place_signal}"
-                                timeout_sec="{final_place_signal_timeout_sec}"
-                                received_value="{final_place_received_signal}"
-                                message="{last_error}"/>
-              <RetrySegment num_attempts="{final_place_action_retry_attempts}">
-                <AresToolAction action="{final_place_high_action}"
-                                service_name="{final_place_action_service_name}"
-                                timeout_sec="{final_place_action_timeout_sec}"
-                                arg0="{final_place_action_arg0}"
-                                arg1="{final_place_action_arg1}"
-                                arg2="{final_place_action_arg2}"
-                                arg3="{final_place_action_arg3}"
-                                message="{last_error}"/>
-              </RetrySegment>
-            </Sequence>
-
-            <Sequence name="default">
-              <SetDebugStatus execution_state="ACTION_FAILED" active_action="FinalDispatch"
-                              last_error="Unsupported final_flow"/>
-            </Sequence>
-
-          </SwitchSegmentType>
-
-          <WaitSeconds seconds="{final_post_place_wait_sec}"/>
-
-          <RetrySegment num_attempts="3">
-            <MoveToPose target_x="{final_standby_target_x}"
-                        target_y="{final_standby_target_y}"
-                        target_yaw="{final_standby_target_yaw}"
-                        pid_profile="{final_standby_pid_profile}"
-                        max_vel="{final_standby_max_vel}"
-                        max_wz="{final_standby_max_wz}"
-                        timeout_sec="{final_standby_timeout_sec}"
-                        error_msg="{last_error}"/>
-          </RetrySegment>
-
+          <PlaceKFSAction server_name="{place_kfs_action_name}"
+                          deck_command="0"
+                          timeout_sec="{place_kfs_action_timeout_sec}"
+                          message="{last_error}"/>
         </Sequence>
       </Repeat>
 
@@ -323,6 +244,8 @@
       <input_port name="max_vel"/>
       <input_port name="max_wz"/>
       <input_port name="timeout_sec"/>
+      <input_port name="early_success_distance"/>
+      <input_port name="early_success_yaw_tolerance"/>
       <input_port name="frame_id"/>
       <output_port name="error_msg"/>
     </Action>
@@ -331,6 +254,27 @@
       <input_port name="expected_count"/>
       <input_port name="timeout_sec"/>
       <input_port name="server_name"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="InitialPlaceKFS">
+      <input_port name="enabled"/>
+      <input_port name="deck_topic"/>
+      <input_port name="default_command"/>
+      <input_port name="prepare_action_name"/>
+      <input_port name="prepare_timeout_sec"/>
+      <input_port name="forward_enabled"/>
+      <input_port name="forward_velocity_topic"/>
+      <input_port name="forward_speed_mps"/>
+      <input_port name="forward_duration_sec"/>
+      <input_port name="forward_publish_rate_hz"/>
+      <output_port name="message"/>
+    </Action>
+
+    <Action ID="PlaceKFSAction">
+      <input_port name="server_name"/>
+      <input_port name="deck_command"/>
+      <input_port name="timeout_sec"/>
       <output_port name="message"/>
     </Action>
 
@@ -376,6 +320,8 @@
       <output_port name="step_correction_y"/>
       <output_port name="step_correction_yaw_deg"/>
       <output_port name="step_timeout_sec"/>
+      <output_port name="move_early_success_distance"/>
+      <output_port name="move_early_success_yaw_tolerance"/>
       <output_port name="message"/>
     </Action>
 

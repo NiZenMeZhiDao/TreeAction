@@ -32,9 +32,15 @@ private:
   bool goal_response_received_;
   bool goal_accepted_;
   bool goal_done_;
+  bool feedback_received_;
+  bool early_success_;
   BT::NodeStatus result_status_;
   std::string error_msg_;
   double timeout_sec_;
+  double early_success_distance_;
+  double early_success_yaw_tolerance_;
+  double latest_distance_error_;
+  double latest_yaw_error_;
   std::chrono::steady_clock::time_point start_time_;
   std::mutex mutex_;
 };
